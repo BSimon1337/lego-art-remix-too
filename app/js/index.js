@@ -1,5 +1,6 @@
-const VERSION_NUMBER = "v2022.12.11";
-document.getElementById("version-number").innerHTML = VERSION_NUMBER;
+// VERSION_NUMBER is defined in version.js
+document.getElementById("version-number").textContent = VERSION_NUMBER;
+document.querySelectorAll(".version-number-display").forEach(el => el.textContent = VERSION_NUMBER);
 
 let perfLoggingDatabase;
 try {
@@ -20,15 +21,49 @@ try {
                                 Number(inputVal) + Number(exampleVal)
                             } images created to date`;
                         }
-                    });
+                    })
+                    .catch(() => {});
             }
-        });
+        })
+        .catch(() => {});
 } catch (_e) {
     // we don't care if this fails
 }
 
 function incrementTransaction(count) {
     return (count || 0) + 1;
+}
+
+function debounce(fn, delay) {
+    let timer;
+    return function (...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+function bindSliderButtons(sliderId, incrementId, decrementId, changeCallback) {
+    const slider = document.getElementById(sliderId);
+    document.getElementById(incrementId).addEventListener(
+        "click",
+        () => {
+            if (Number(slider.value) < Number(slider.max)) {
+                slider.value = Number(slider.value) + 1;
+                changeCallback();
+            }
+        },
+        false
+    );
+    document.getElementById(decrementId).addEventListener(
+        "click",
+        () => {
+            if (Number(slider.value) > Number(slider.min)) {
+                slider.value = Number(slider.value) - 1;
+                changeCallback();
+            }
+        },
+        false
+    );
 }
 
 const LOW_DPI = 48;
@@ -68,13 +103,17 @@ const interactionSelectors = [
 
 const customStudTableBody = document.getElementById("custom-stud-table-body");
 
+// Cache only static elements (those that don't change after page load)
+const loadingProgressEl = document.getElementById("universal-loading-progress");
+const loadingProgressComplementEl = document.getElementById("universal-loading-progress-complement");
+
 function disableInteraction() {
     interactionSelectors.forEach((button) => (button.disabled = true));
     [...document.getElementsByTagName("input")].forEach((button) => (button.disabled = true));
     [...document.getElementsByClassName("btn")].forEach((button) => (button.disabled = true));
-    [...document.getElementsByClassName("nav-link")].forEach((link) => (link.className = link.className + " disabled"));
-    document.getElementById("universal-loading-progress").hidden = false;
-    document.getElementById("universal-loading-progress-complement").hidden = true;
+    [...document.getElementsByClassName("nav-link")].forEach((link) => link.classList.add("disabled"));
+    loadingProgressEl.style.display = "block";
+    loadingProgressComplementEl.style.display = "none";
     if (inputImageCropper != null) {
         inputImageCropper.disable();
     }
@@ -86,11 +125,10 @@ function enableInteraction() {
         button.disabled = button.className.includes("always-disabled");
     });
     [...document.getElementsByClassName("btn")].forEach((button) => (button.disabled = false));
-    [...document.getElementsByClassName("nav-link")].forEach(
-        (link) => (link.className = link.className.replace(/ disabled/g, ""))
-    );
-    document.getElementById("universal-loading-progress").hidden = true;
-    document.getElementById("universal-loading-progress-complement").hidden = false;
+    [...document.getElementsByClassName("nav-link")].forEach((link) => link.classList.remove("disabled"));
+    loadingProgressEl.style.display = "none";
+    loadingProgressComplementEl.style.display = "none";
+    setLoadingMessage(null);
     if (inputImageCropper != null) {
         inputImageCropper.enable();
     }
@@ -183,6 +221,7 @@ function initializeCropper() {
         cropend() {
             overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
             overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
+            clearUndoHistory();
         },
     });
 }
@@ -201,9 +240,9 @@ function enableDepth() {
     [...document.getElementsByClassName("3d-selector-tabs")].forEach((tabsList) => (tabsList.hidden = false));
     document.getElementById("enable-depth-button-container").hidden = true;
 
-    document.getElementById("download-instructions-button").innerHTML = "Generate Color Instructions PDF";
+    document.getElementById("download-instructions-button").textContent = "Generate Color Instructions PDF";
 
-    document.getElementById("export-to-bricklink-button").innerHTML = "Copy Pixels Bricklink XML to Clipboard";
+    document.getElementById("export-to-bricklink-button").textContent = "Copy Pixels Bricklink XML to Clipboard";
 
     onDepthMapCountChange();
 
@@ -230,7 +269,7 @@ Object.keys(PLATE_DIMENSIONS_TO_PART_ID).forEach((plate) => {
         const label = document.createElement("label");
         label.className = plate === "1 X 1" ? "" : "checkbox-clickable";
         const plateSpan = document.createElement("span");
-        plateSpan.innerHTML = " " + plate;
+        plateSpan.textContent = " " + plate;
         label.appendChild(input);
         label.appendChild(plateSpan);
         const checkbox = document.createElement("div");
@@ -261,10 +300,10 @@ Object.keys(PLATE_DIMENSIONS_TO_PART_ID).forEach((plate) => {
 
 function updateStudCountText() {
     const requiredStuds = targetResolution[0] * targetResolution[1];
-    document.getElementById("required-studs").innerHTML = requiredStuds;
+    document.getElementById("required-studs").textContent = requiredStuds;
     if (document.getElementById("infinite-piece-count-check").checked) {
-        document.getElementById("available-studs").innerHTML = "∞";
-        document.getElementById("missing-studs").innerHTML = "0";
+        document.getElementById("available-studs").textContent = "∞";
+        document.getElementById("missing-studs").textContent = "0";
         document.getElementById("nonzero-missing-pieces-warning").hidden = true;
     } else {
         let availableStuds = 0;
@@ -272,8 +311,8 @@ function updateStudCountText() {
             availableStuds += parseInt(stud.children[1].children[0].children[0].value);
         });
         const missingStuds = Math.max(requiredStuds - availableStuds, 0);
-        document.getElementById("available-studs").innerHTML = availableStuds;
-        document.getElementById("missing-studs").innerHTML = missingStuds;
+        document.getElementById("available-studs").textContent = availableStuds;
+        document.getElementById("missing-studs").textContent = missingStuds;
         document.getElementById("nonzero-missing-pieces-warning").hidden = missingStuds === 0;
     }
 }
@@ -311,19 +350,98 @@ const quantizationAlgorithmToTraditionalDitheringKernel = {
 
 const defaultQuantizationAlgorithmKey = "twoPhase";
 let quantizationAlgorithm = defaultQuantizationAlgorithmKey;
-document.getElementById("quantization-algorithm-button").innerHTML =
+document.getElementById("quantization-algorithm-button").textContent =
     quantizationAlgorithmsInfo[defaultQuantizationAlgorithmKey].name;
 
 let selectedPixelPartNumber = PIXEL_TYPE_OPTIONS[0].number;
-document.getElementById("bricklink-piece-button").innerHTML = PIXEL_TYPE_OPTIONS[0].name;
+document.getElementById("bricklink-piece-button").textContent = PIXEL_TYPE_OPTIONS[0].name;
 
 // TODO: Make this a function
 let overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
 let overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
 
+// Undo/redo stacks for override painting
+const MAX_UNDO_HISTORY = 50;
+let undoStack = [];
+let redoStack = [];
+
+function saveUndoState() {
+    undoStack.push(overridePixelArray.slice());
+    if (undoStack.length > MAX_UNDO_HISTORY) {
+        undoStack.shift();
+    }
+    redoStack = [];
+    updateUndoRedoButtons();
+}
+
+function undoOverride() {
+    if (undoStack.length === 0) return;
+    redoStack.push(overridePixelArray.slice());
+    overridePixelArray = undoStack.pop();
+    updateUndoRedoButtons();
+    runStep2();
+}
+
+function redoOverride() {
+    if (redoStack.length === 0) return;
+    undoStack.push(overridePixelArray.slice());
+    overridePixelArray = redoStack.pop();
+    updateUndoRedoButtons();
+    runStep2();
+}
+
+function updateUndoRedoButtons() {
+    document.getElementById("undo-override-button").disabled = undoStack.length === 0;
+    document.getElementById("redo-override-button").disabled = redoStack.length === 0;
+}
+
+function clearUndoHistory() {
+    undoStack = [];
+    redoStack = [];
+    updateUndoRedoButtons();
+}
+
+// Brush size
+let brushSize = 1;
+document.getElementById("brush-size-slider").addEventListener("input", function () {
+    brushSize = Number(this.value);
+    document.getElementById("brush-size-text").textContent = brushSize;
+});
+
+// Progress message helper
+function setLoadingMessage(message) {
+    const el = document.getElementById("loading-status-message");
+    if (message) {
+        el.textContent = message;
+        el.style.display = "block";
+    } else {
+        el.style.display = "none";
+        el.textContent = "";
+    }
+}
+
+// Dark mode toggle
+document.getElementById("dark-mode-toggle").addEventListener("click", function () {
+    var isCurrentlyDark = document.body.classList.contains("dark-mode");
+    if (isCurrentlyDark) {
+        try { localStorage.setItem("darkMode", "off"); } catch (e) {}
+    } else {
+        try { localStorage.setItem("darkMode", "on"); } catch (e) {}
+    }
+    this.textContent = isCurrentlyDark ? "Dark Mode" : "Light Mode";
+    regenerateBackground(); // defined in background.js — toggles class + redraws stud pattern
+});
+(function () {
+    // Sync button text with current dark mode state
+    if (document.body.classList.contains("dark-mode")) {
+        document.getElementById("dark-mode-toggle").textContent = "Light Mode";
+    }
+})();
+
 function handleResolutionChange() {
     overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
     overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
+    clearUndoHistory();
     document.getElementById("width-text").title = `${(targetResolution[0] * PIXEL_WIDTH_CM).toFixed(1)} cm, ${(
         targetResolution[0] *
         PIXEL_WIDTH_CM *
@@ -342,26 +460,38 @@ function handleResolutionChange() {
 
 document.getElementById("width-slider").addEventListener(
     "change",
-    () => {
-        document.getElementById("width-text").innerHTML = document.getElementById("width-slider").value;
+    debounce(() => {
+        document.getElementById("width-text").textContent = document.getElementById("width-slider").value;
         targetResolution[0] = document.getElementById("width-slider").value;
         handleResolutionChange();
-    },
+    }, 150),
     false
 );
 
 document.getElementById("height-slider").addEventListener(
     "change",
-    () => {
-        document.getElementById("height-text").innerHTML = document.getElementById("height-slider").value;
+    debounce(() => {
+        document.getElementById("height-text").textContent = document.getElementById("height-slider").value;
         targetResolution[1] = document.getElementById("height-slider").value;
         handleResolutionChange();
-    },
+    }, 150),
     false
 );
 document.getElementById("clear-overrides-button").addEventListener("click", () => {
+    saveUndoState();
     overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
     runStep2();
+});
+document.getElementById("undo-override-button").addEventListener("click", undoOverride);
+document.getElementById("redo-override-button").addEventListener("click", redoOverride);
+document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undoOverride();
+    } else if (e.ctrlKey && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redoOverride();
+    }
 });
 document.getElementById("clear-depth-overrides-button").addEventListener("click", () => {
     overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
@@ -374,12 +504,12 @@ document.getElementById("resolution-limit-increase-button").addEventListener("cl
     document.getElementById("resolution-limit-increase-button").hidden = true;
 });
 
-document.getElementById("color-tie-grouping-factor-slider").addEventListener("change", () => {
-    document.getElementById("color-tie-grouping-factor-text").innerHTML = document.getElementById(
+document.getElementById("color-tie-grouping-factor-slider").addEventListener("change", debounce(() => {
+    document.getElementById("color-tie-grouping-factor-text").textContent = document.getElementById(
         "color-tie-grouping-factor-slider"
     ).value;
     runStep4();
-});
+}, 150));
 
 let DEFAULT_STUD_MAP = "all_tile_colors";
 let DEFAULT_COLOR = "#42c0fb";
@@ -418,7 +548,6 @@ try {
             url_colors: {
                 name: "Colors from URL",
                 officialName: "Colors from URL",
-                sortedStuds: availableColors,
                 studMap: studMap,
             },
             all_solid_colors: STUD_MAPS["all_solid_colors"],
@@ -432,11 +561,11 @@ try {
 
 let selectedStudMap = STUD_MAPS[DEFAULT_STUD_MAP].studMap;
 let selectedFullSetName = STUD_MAPS[DEFAULT_STUD_MAP].officialName;
-let selectedSortedStuds = STUD_MAPS[DEFAULT_STUD_MAP].sortedStuds;
+let selectedSortedStuds = getSortedStuds(STUD_MAPS[DEFAULT_STUD_MAP].studMap);
 
 function populateCustomStudSelectors(studMap, shouldRunAfterPopulation) {
     customStudTableBody.innerHTML = "";
-    studMap.sortedStuds.forEach((stud) => {
+    getSortedStuds(studMap.studMap).forEach((stud) => {
         const studRow = getNewCustomStudRow();
         studRow.children[0].children[0].children[0].children[0].style.backgroundColor = stud;
         studRow.children[0].children[0].setAttribute("title", HEX_TO_COLOR_NAME[stud] || stud);
@@ -449,7 +578,7 @@ function populateCustomStudSelectors(studMap, shouldRunAfterPopulation) {
 }
 
 function mixInStudMap(studMap, runAfterMixIn) {
-    studMap.sortedStuds.forEach((stud) => {
+    getSortedStuds(studMap.studMap).forEach((stud) => {
         let existingRow = null;
         Array.from(customStudTableBody.children).forEach((row) => {
             const rgb = row.children[0].children[0].children[0].children[0].style.backgroundColor
@@ -493,7 +622,7 @@ PIXEL_TYPE_OPTIONS.forEach((part) => {
     option.textContent = part.name;
     option.value = part.number;
     option.addEventListener("click", () => {
-        document.getElementById("bricklink-piece-button").innerHTML = part.name;
+        document.getElementById("bricklink-piece-button").textContent = part.name;
         selectedPixelPartNumber = part.number;
         const isVariable = ("" + selectedPixelPartNumber).match("^variable.*$");
         document.getElementById("pixel-dimensions-container-wrapper").hidden = !isVariable;
@@ -584,7 +713,7 @@ TIEBREAK_TECHNIQUES.forEach((technique) => {
     option.textContent = technique.name;
     option.value = technique.value;
     option.addEventListener("click", () => {
-        document.getElementById("color-ties-resolution-button").innerHTML =
+        document.getElementById("color-ties-resolution-button").textContent =
             /*"Color Tie Resolution: " +*/
             "Strategy: " + technique.name;
         selectedTiebreakTechnique = technique.value;
@@ -622,7 +751,7 @@ INTERPOLATION_ALGORITHMS.forEach((algorithm) => {
     option.textContent = algorithm.name;
     option.value = algorithm.value;
     option.addEventListener("click", () => {
-        document.getElementById("interpolation-algorithm-button").innerHTML = algorithm.name;
+        document.getElementById("interpolation-algorithm-button").textContent = algorithm.name;
         selectedInterpolationAlgorithm = algorithm.value;
         runStep2();
     });
@@ -682,7 +811,7 @@ const colorDistanceFunctionsInfo = {
 
 const defaultDistanceFunctionKey = "ciede2000";
 let colorDistanceFunction = colorDistanceFunctionsInfo[defaultDistanceFunctionKey].func;
-document.getElementById("distance-function-button").innerHTML =
+document.getElementById("distance-function-button").textContent =
     colorDistanceFunctionsInfo[defaultDistanceFunctionKey].name;
 
 Object.keys(colorDistanceFunctionsInfo).forEach((key) => {
@@ -692,7 +821,7 @@ Object.keys(colorDistanceFunctionsInfo).forEach((key) => {
     option.textContent = distanceFunction.name;
     option.value = key;
     option.addEventListener("click", () => {
-        document.getElementById("distance-function-button").innerHTML = distanceFunction.name;
+        document.getElementById("distance-function-button").textContent = distanceFunction.name;
         colorDistanceFunction = distanceFunction.func;
         disableInteraction();
         runStep3();
@@ -733,7 +862,7 @@ Object.keys(quantizationAlgorithmsInfo).forEach((key) => {
     option.textContent = algorithm.name;
     option.value = key;
     option.addEventListener("click", () => {
-        document.getElementById("quantization-algorithm-button").innerHTML = algorithm.name;
+        document.getElementById("quantization-algorithm-button").textContent = algorithm.name;
         quantizationAlgorithm = key;
 
         // Only 2 phase supports color tie resolution
@@ -789,16 +918,16 @@ STUD_MAP_KEYS.filter((key) => key !== "rgb").forEach((studMap) => {
         option.textContent = STUD_MAPS[studMap].name;
         option.value = studMap;
         option.addEventListener("click", () => {
-            customStudTableBody.innerHTML = "";
+            customStudTableBody.textContent = "";
             mixInStudMap(STUD_MAPS[studMap], false);
-            document.getElementById("select-starting-custom-stud-map-button").innerHTML = STUD_MAPS[studMap].name;
+            document.getElementById("select-starting-custom-stud-map-button").textContent = STUD_MAPS[studMap].name;
             document.getElementById("input-stud-map-description").innerHTML = STUD_MAPS[studMap].descriptionHTML ?? "";
         });
         document.getElementById("select-starting-custom-stud-map-options").appendChild(option);
     }
 });
 
-document.getElementById("select-starting-custom-stud-map-button").innerHTML = STUD_MAPS[DEFAULT_STUD_MAP].name;
+document.getElementById("select-starting-custom-stud-map-button").textContent = STUD_MAPS[DEFAULT_STUD_MAP].name;
 document.getElementById("input-stud-map-description").innerHTML = STUD_MAPS[DEFAULT_STUD_MAP].descriptionHTML ?? "";
 
 constMixInDivider = document.createElement("div");
@@ -819,7 +948,25 @@ document.getElementById("import-stud-map-file-input").addEventListener(
     (e) => {
         const reader = new FileReader();
         reader.onload = function (event) {
-            mixInStudMap(JSON.parse(reader.result, true));
+            try {
+                const parsed = JSON.parse(reader.result);
+                const hexPattern = /^#[0-9a-f]{6}$/i;
+                const keys = Object.keys(parsed);
+                if (keys.length === 0) {
+                    throw new Error("Empty stud map");
+                }
+                for (const key of keys) {
+                    if (!hexPattern.test(key)) {
+                        throw new Error("Invalid color key: " + key);
+                    }
+                    if (!Number.isInteger(parsed[key]) || parsed[key] < 0) {
+                        throw new Error("Invalid count for " + key);
+                    }
+                }
+                mixInStudMap(parsed);
+            } catch (err) {
+                alert("Failed to import stud map: " + err.message);
+            }
             document.getElementById("import-stud-map-file-input").value = null;
         };
         reader.readAsText(e.target.files[0]);
@@ -890,13 +1037,13 @@ function getColorSelectorDropdown(tooltipPosition) {
         option.style.display = "flex";
         option.className = "dropdown-item btn";
         const text = document.createElement("span");
-        text.innerHTML = "&nbsp;" + color.name;
+        text.textContent = " " + color.name;
         const colorSquare = getColorSquare(color.hex);
         colorSquare.style.marginTop = "3px";
         option.appendChild(colorSquare);
         option.appendChild(text);
         option.addEventListener("click", () => {
-            button.innerHTML = "";
+            button.textContent = "";
             button.appendChild(getColorSquare(color.hex));
             container.setAttribute("title", color.name);
             $('[data-toggle="tooltip"]').tooltip("dispose");
@@ -909,7 +1056,7 @@ function getColorSelectorDropdown(tooltipPosition) {
     container.setAttribute("data-toggle", "tooltip");
     container.setAttribute("data-placement", tooltipPosition);
     container.setAttribute("title", DEFAULT_COLOR_NAME);
-    setTimeout(() => $('[data-toggle="tooltip"]').tooltip(), 10);
+    requestAnimationFrame(() => $('[data-toggle="tooltip"]').tooltip());
     container.appendChild(button);
     container.appendChild(dropdown);
     return container;
@@ -927,7 +1074,7 @@ function getNewCustomStudRow() {
     const removeButton = document.createElement("button");
     removeButton.className = "btn btn-danger";
     removeButton.style = "padding: 2px; margin-left: 4px;";
-    removeButton.innerHTML = "X";
+    removeButton.textContent = "X";
     removeButton.addEventListener("click", () => {
         customStudTableBody.removeChild(studRow);
         runCustomStudMap();
@@ -956,7 +1103,7 @@ function getNewCustomStudRow() {
     infinityPlaceholder = document.createElement("div");
     infinityPlaceholder.hidden = !numberInput.hidden;
     infinityPlaceholder.className = "piece-count-infinity-placeholder";
-    infinityPlaceholder.innerHTML = "∞";
+    infinityPlaceholder.textContent = "∞";
     numberCellChild.style = "display: flex; flex-direction: horizontal;";
     numberCellChild.appendChild(numberInput);
     numberCellChild.appendChild(infinityPlaceholder);
@@ -975,174 +1122,51 @@ document.getElementById("add-custom-stud-button").addEventListener("click", () =
 });
 
 const onHueChange = () => {
-    document.getElementById("hue-text").innerHTML = document.getElementById("hue-slider").value + "<span>&#176;</span>";
+    document.getElementById("hue-text").textContent = document.getElementById("hue-slider").value + "°";
     runStep2();
 };
-document.getElementById("hue-slider").addEventListener("change", onHueChange, false);
-document.getElementById("hue-increment").addEventListener(
-    "click",
-    () => {
-        if (Number(document.getElementById("hue-slider").value) < Number(document.getElementById("hue-slider").max)) {
-            document.getElementById("hue-slider").value = Number(document.getElementById("hue-slider").value) + 1;
-            onHueChange();
-        }
-    },
-    false
-);
-document.getElementById("hue-decrement").addEventListener(
-    "click",
-    () => {
-        if (Number(document.getElementById("hue-slider").value) > Number(document.getElementById("hue-slider").min)) {
-            document.getElementById("hue-slider").value = Number(document.getElementById("hue-slider").value) - 1;
-            onHueChange();
-        }
-    },
-    false
-);
+document.getElementById("hue-slider").addEventListener("change", debounce(onHueChange, 150), false);
+bindSliderButtons("hue-slider", "hue-increment", "hue-decrement", onHueChange);
 
 const onSaturationChange = () => {
-    document.getElementById("saturation-text").innerHTML = document.getElementById("saturation-slider").value + "%";
+    document.getElementById("saturation-text").textContent = document.getElementById("saturation-slider").value + "%";
     runStep2();
 };
-document.getElementById("saturation-slider").addEventListener("change", onSaturationChange, false);
-document.getElementById("saturation-increment").addEventListener(
-    "click",
-    () => {
-        if (
-            Number(document.getElementById("saturation-slider").value) <
-            Number(document.getElementById("saturation-slider").max)
-        ) {
-            document.getElementById("saturation-slider").value =
-                Number(document.getElementById("saturation-slider").value) + 1;
-            onSaturationChange();
-        }
-    },
-    false
-);
-document.getElementById("saturation-decrement").addEventListener(
-    "click",
-    () => {
-        if (
-            Number(document.getElementById("saturation-slider").value) >
-            Number(document.getElementById("saturation-slider").min)
-        ) {
-            document.getElementById("saturation-slider").value =
-                Number(document.getElementById("saturation-slider").value) - 1;
-            onSaturationChange();
-        }
-    },
-    false
-);
+document.getElementById("saturation-slider").addEventListener("change", debounce(onSaturationChange, 150), false);
+bindSliderButtons("saturation-slider", "saturation-increment", "saturation-decrement", onSaturationChange);
 
 const onValueChange = () => {
-    document.getElementById("value-text").innerHTML = document.getElementById("value-slider").value + "%";
+    document.getElementById("value-text").textContent = document.getElementById("value-slider").value + "%";
     runStep2();
 };
-document.getElementById("value-slider").addEventListener("change", onValueChange, false);
-document.getElementById("value-increment").addEventListener(
-    "click",
-    () => {
-        if (
-            Number(document.getElementById("value-slider").value) < Number(document.getElementById("value-slider").max)
-        ) {
-            document.getElementById("value-slider").value = Number(document.getElementById("value-slider").value) + 1;
-            onValueChange();
-        }
-    },
-    false
-);
-document.getElementById("value-decrement").addEventListener(
-    "click",
-    () => {
-        if (
-            Number(document.getElementById("value-slider").value) > Number(document.getElementById("value-slider").min)
-        ) {
-            document.getElementById("value-slider").value = Number(document.getElementById("value-slider").value) - 1;
-            onValueChange();
-        }
-    },
-    false
-);
+document.getElementById("value-slider").addEventListener("change", debounce(onValueChange, 150), false);
+bindSliderButtons("value-slider", "value-increment", "value-decrement", onValueChange);
 
 const onBrightnessChange = () => {
-    document.getElementById("brightness-text").innerHTML =
+    document.getElementById("brightness-text").textContent =
         (document.getElementById("brightness-slider").value > 0 ? "+" : "") +
         document.getElementById("brightness-slider").value;
     runStep2();
 };
-document.getElementById("brightness-slider").addEventListener("change", onBrightnessChange, false);
-document.getElementById("brightness-increment").addEventListener(
-    "click",
-    () => {
-        if (
-            Number(document.getElementById("brightness-slider").value) <
-            Number(document.getElementById("brightness-slider").max)
-        ) {
-            document.getElementById("brightness-slider").value =
-                Number(document.getElementById("brightness-slider").value) + 1;
-            onBrightnessChange();
-        }
-    },
-    false
-);
-document.getElementById("brightness-decrement").addEventListener(
-    "click",
-    () => {
-        if (
-            Number(document.getElementById("brightness-slider").value) >
-            Number(document.getElementById("brightness-slider").min)
-        ) {
-            document.getElementById("brightness-slider").value =
-                Number(document.getElementById("brightness-slider").value) - 1;
-            onBrightnessChange();
-        }
-    },
-    false
-);
+document.getElementById("brightness-slider").addEventListener("change", debounce(onBrightnessChange, 150), false);
+bindSliderButtons("brightness-slider", "brightness-increment", "brightness-decrement", onBrightnessChange);
 
 const onContrastChange = () => {
-    document.getElementById("contrast-text").innerHTML =
+    document.getElementById("contrast-text").textContent =
         (document.getElementById("contrast-slider").value > 0 ? "+" : "") +
         document.getElementById("contrast-slider").value;
     runStep2();
 };
-document.getElementById("contrast-slider").addEventListener("change", onContrastChange, false);
-document.getElementById("contrast-increment").addEventListener(
-    "click",
-    () => {
-        if (
-            Number(document.getElementById("contrast-slider").value) <
-            Number(document.getElementById("contrast-slider").max)
-        ) {
-            document.getElementById("contrast-slider").value =
-                Number(document.getElementById("contrast-slider").value) + 1;
-            onContrastChange();
-        }
-    },
-    false
-);
-document.getElementById("contrast-decrement").addEventListener(
-    "click",
-    () => {
-        if (
-            Number(document.getElementById("contrast-slider").value) >
-            Number(document.getElementById("contrast-slider").min)
-        ) {
-            document.getElementById("contrast-slider").value =
-                Number(document.getElementById("contrast-slider").value) - 1;
-            onContrastChange();
-        }
-    },
-    false
-);
+document.getElementById("contrast-slider").addEventListener("change", debounce(onContrastChange, 150), false);
+bindSliderButtons("contrast-slider", "contrast-increment", "contrast-decrement", onContrastChange);
 
 function onDepthMapCountChange() {
     const numLevels = Number(document.getElementById("num-depth-levels-slider").value);
     overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
-    document.getElementById("num-depth-levels-text").innerHTML = numLevels;
+    document.getElementById("num-depth-levels-text").textContent = numLevels;
     const inputs = [];
     const inputsContainer = document.getElementById("depth-threshold-sliders-containers");
-    inputsContainer.innerHTML = "";
+    inputsContainer.textContent = "";
     for (let i = 0; i < numLevels - 1; i++) {
         const input = document.createElement("input");
         input.type = "range";
@@ -1150,7 +1174,7 @@ function onDepthMapCountChange() {
         input.max = 255;
         input.value = Math.floor(255 * ((i + 1) / numLevels));
         input.style = "width: 100%";
-        input.addEventListener("change", () => {
+        input.addEventListener("change", debounce(() => {
             for (let j = 0; j < i; j++) {
                 inputs[j].value = Math.min(inputs[j].value, input.value);
             }
@@ -1158,7 +1182,7 @@ function onDepthMapCountChange() {
                 inputs[j].value = Math.max(inputs[j].value, input.value);
             }
             runStep1();
-        });
+        }, 150));
         inputs.push(input);
         inputsContainer.appendChild(input);
     }
@@ -1168,7 +1192,7 @@ function onDepthMapCountChange() {
     runStep1();
 }
 
-document.getElementById("num-depth-levels-slider").addEventListener("change", onDepthMapCountChange, false);
+document.getElementById("num-depth-levels-slider").addEventListener("change", debounce(onDepthMapCountChange, 150), false);
 
 document.getElementById("reset-hsv-button").addEventListener(
     "click",
@@ -1176,10 +1200,10 @@ document.getElementById("reset-hsv-button").addEventListener(
         document.getElementById("hue-slider").value = 0;
         document.getElementById("saturation-slider").value = 0;
         document.getElementById("value-slider").value = 0;
-        document.getElementById("hue-text").innerHTML =
-            document.getElementById("hue-slider").value + "<span>&#176;</span>";
-        document.getElementById("saturation-text").innerHTML = document.getElementById("saturation-slider").value + "%";
-        document.getElementById("value-text").innerHTML = document.getElementById("value-slider").value + "%";
+        document.getElementById("hue-text").textContent =
+            document.getElementById("hue-slider").value + "°";
+        document.getElementById("saturation-text").textContent = document.getElementById("saturation-slider").value + "%";
+        document.getElementById("value-text").textContent = document.getElementById("value-slider").value + "%";
         runStep2();
     },
     false
@@ -1189,7 +1213,7 @@ document.getElementById("reset-brightness-button").addEventListener(
     "click",
     () => {
         document.getElementById("brightness-slider").value = 0;
-        document.getElementById("brightness-text").innerHTML = document.getElementById("brightness-slider").value;
+        document.getElementById("brightness-text").textContent = document.getElementById("brightness-slider").value;
         runStep2();
     },
     false
@@ -1199,7 +1223,7 @@ document.getElementById("reset-contrast-button").addEventListener(
     "click",
     () => {
         document.getElementById("contrast-slider").value = 0;
-        document.getElementById("contrast-text").innerHTML = document.getElementById("contrast-slider").value;
+        document.getElementById("contrast-text").textContent = document.getElementById("contrast-slider").value;
         runStep2();
     },
     false
@@ -1207,6 +1231,7 @@ document.getElementById("reset-contrast-button").addEventListener(
 
 function runStep1() {
     disableInteraction();
+    setLoadingMessage("Preparing stud map...");
     updateStudCountText();
 
     window.URL.revokeObjectURL(document.getElementById("export-stud-map-button").href);
@@ -1217,7 +1242,6 @@ function runStep1() {
                 [
                     JSON.stringify({
                         studMap: selectedStudMap,
-                        sortedStuds: Object.keys(selectedStudMap),
                     }),
                 ],
                 {
@@ -1238,10 +1262,11 @@ function runStep1() {
     );
     setTimeout(() => {
         runStep2();
-    }, 1); // TODO: find better way to check that input is finished
+    }, 1);
 }
 
 function runStep2() {
+    setLoadingMessage("Resizing and filtering image...");
     let inputPixelArray;
     if (selectedInterpolationAlgorithm === "default") {
         const croppedCanvas = inputImageCropper.getCroppedCanvas({
@@ -1357,7 +1382,7 @@ function runStep2() {
             step2DepthCanvasUpscaled,
             selectedPixelPartNumber
         );
-    }, 1); // TODO: find better way to check that input is finished
+    }, 1);
 }
 
 function getVariablePixelAvailablePartDimensions() {
@@ -1386,6 +1411,7 @@ function getVariablePixelAvailablePartDimensions() {
 let step3VariablePixelPieceDimensions = null;
 
 function runStep3() {
+    setLoadingMessage("Quantizing colors...");
     const fiteredPixelArray = getPixelArrayFromCanvas(step2Canvas);
 
     let alignedPixelArray;
@@ -1492,7 +1518,7 @@ function runStep3() {
         alignedPixelArray,
         colorDistanceFunction
     );
-    document.getElementById("step-3-quantization-error").innerHTML = step3QuantizationError.toFixed(3);
+    document.getElementById("step-3-quantization-error").textContent = step3QuantizationError.toFixed(3);
 
     setTimeout(() => {
         if (!isStep3ViewExpanded) {
@@ -1526,7 +1552,7 @@ function runStep3() {
             step3DepthCanvasUpscaled,
             selectedPixelPartNumber
         );
-    }, 1); // TODO: find better way to check that input is finished
+    }, 1);
 }
 
 let isStep3ViewExpanded = false;
@@ -1539,12 +1565,12 @@ let isStep3ViewExpanded = false;
             if (isStep3ViewExpanded) {
                 toToggleElements.forEach((element) => (element.hidden = true));
                 document.getElementById("toggle-expansion-button").title = "Collapse picture";
-                document.getElementById("toggle-depth-expansion-button").innerHTML = "Collapse Picture";
+                document.getElementById("toggle-depth-expansion-button").textContent = "Collapse Picture";
                 document.getElementById("step-3").className = "col-12";
             } else {
                 toToggleElements.forEach((element) => (element.hidden = false));
                 document.getElementById("toggle-expansion-button").title = "Expand picture";
-                document.getElementById("toggle-depth-expansion-button").innerHTML = "Expand Picture";
+                document.getElementById("toggle-depth-expansion-button").textContent = "Expand Picture";
                 document.getElementById("step-3").className = "col-6 col-md-3";
                 runStep1();
             }
@@ -1656,6 +1682,7 @@ function onStep3PaintingMouseLift() {
 step3CanvasUpscaled.addEventListener(
     "mousedown",
     function (event) {
+        saveUndoState();
         wasPaintbrushUsed = true;
         const rawRow =
             event.clientY -
@@ -1714,47 +1741,59 @@ function onMouseMoveOverStep3Canvas(event) {
 
     if (activePaintbrushHex != null) {
         // mouse is clicked down, so we're handling the click
+        const height = targetResolution[1];
+        const brushOffset = Math.floor(brushSize / 2);
 
         if (selectedPaintbrushTool === "paintbrush-tool-dropdown-option") {
             const colorRGB = hexToRgb(activePaintbrushHex);
-            // we want to paint - update the override pixel array
-            // do stuff directly on the canvas for perf
-            ctx.beginPath();
-            ctx.arc(((i % width) * 2 + 1) * radius, (Math.floor(i / width) * 2 + 1) * radius, radius, 0, 2 * Math.PI);
-            ctx.fillStyle = activePaintbrushHex;
-            ctx.fill();
-
-            // update the override pixel array in place
-            overridePixelArray[pixelIndex] = colorRGB[0];
-            overridePixelArray[pixelIndex + 1] = colorRGB[1];
-            overridePixelArray[pixelIndex + 2] = colorRGB[2];
+            for (let dr = -brushOffset; dr <= brushOffset; dr++) {
+                for (let dc = -brushOffset; dc <= brushOffset; dc++) {
+                    const br = row + dr;
+                    const bc = col + dc;
+                    if (br < 0 || br >= height || bc < 0 || bc >= width) continue;
+                    const bi = br * width + bc;
+                    const bpi = bi * 4;
+                    ctx.beginPath();
+                    ctx.arc(((bi % width) * 2 + 1) * radius, (Math.floor(bi / width) * 2 + 1) * radius, radius, 0, 2 * Math.PI);
+                    ctx.fillStyle = activePaintbrushHex;
+                    ctx.fill();
+                    overridePixelArray[bpi] = colorRGB[0];
+                    overridePixelArray[bpi + 1] = colorRGB[1];
+                    overridePixelArray[bpi + 2] = colorRGB[2];
+                }
+            }
         } else if (selectedPaintbrushTool === "eraser-tool-dropdown-option") {
-            // null out the override
-            if (
-                overridePixelArray[pixelIndex] != null &&
-                overridePixelArray[pixelIndex + 1] != null &&
-                overridePixelArray[pixelIndex + 2] != null
-            ) {
-                // do stuff directly on the canvas for perf
-                ctx.beginPath();
-                ctx.arc(
-                    ((i % width) * 2 + 1) * radius,
-                    (Math.floor(i / width) * 2 + 1) * radius,
-                    radius,
-                    0,
-                    2 * Math.PI
-                );
-                ctx.fillStyle = rgbToHex(
-                    step3PixelArrayForEraser[pixelIndex],
-                    step3PixelArrayForEraser[pixelIndex + 1],
-                    step3PixelArrayForEraser[pixelIndex + 2]
-                );
-                ctx.fill();
-
-                // update the override pixel array in place
-                overridePixelArray[pixelIndex] = null;
-                overridePixelArray[pixelIndex + 1] = null;
-                overridePixelArray[pixelIndex + 2] = null;
+            for (let dr = -brushOffset; dr <= brushOffset; dr++) {
+                for (let dc = -brushOffset; dc <= brushOffset; dc++) {
+                    const br = row + dr;
+                    const bc = col + dc;
+                    if (br < 0 || br >= height || bc < 0 || bc >= width) continue;
+                    const bi = br * width + bc;
+                    const bpi = bi * 4;
+                    if (
+                        overridePixelArray[bpi] != null &&
+                        overridePixelArray[bpi + 1] != null &&
+                        overridePixelArray[bpi + 2] != null
+                    ) {
+                        ctx.beginPath();
+                        ctx.arc(
+                            ((bi % width) * 2 + 1) * radius,
+                            (Math.floor(bi / width) * 2 + 1) * radius,
+                            radius,
+                            0,
+                            2 * Math.PI
+                        );
+                        ctx.fillStyle = rgbToHex(
+                            step3PixelArrayForEraser[bpi],
+                            step3PixelArrayForEraser[bpi + 1],
+                            step3PixelArrayForEraser[bpi + 2]
+                        );
+                        ctx.fill();
+                        overridePixelArray[bpi] = null;
+                        overridePixelArray[bpi + 1] = null;
+                        overridePixelArray[bpi + 2] = null;
+                    }
+                }
             }
         } else {
             // dropper tool
@@ -2025,7 +2064,7 @@ function create3dPreview() {
         resizeThrottle: 100,
     });
 
-    step4Canvas3dUpscaled.innerHTML = "";
+    step4Canvas3dUpscaled.textContent = "";
     step4Canvas3dUpscaled.appendChild(app.view);
 
     const img = new PIXI.Sprite.from(step4CanvasUpscaled.toDataURL("image/png", 1.0));
@@ -2103,6 +2142,7 @@ step4Canvas3dUpscaled.addEventListener("mouseleave", function (e) {
 document.getElementById("3d-effect-intensity").addEventListener("change", create3dPreview, false);
 
 function runStep4(asyncCallback) {
+    setLoadingMessage("Building output and part counts...");
     const step2PixelArray = getPixelArrayFromCanvas(step2Canvas);
     const step3PixelArray = getPixelArrayFromCanvas(step3Canvas);
     step4Canvas.width = 0;
@@ -2185,7 +2225,7 @@ function runStep4(asyncCallback) {
             availabilityCorrectedPixelArray,
             colorDistanceFunction
         );
-        document.getElementById("step-4-quantization-error").innerHTML = step4QuantizationError.toFixed(3);
+        document.getElementById("step-4-quantization-error").textContent = step4QuantizationError.toFixed(3);
 
         setTimeout(async () => {
             step4CanvasUpscaledContext.imageSmoothingEnabled = false;
@@ -2209,7 +2249,7 @@ function runStep4(asyncCallback) {
             // create stud map result table
             const usedPixelsStudMap = getUsedPixelsStudMap(pixelsToDraw);
             const usedPixelsTableBody = document.getElementById("studs-used-table-body");
-            usedPixelsTableBody.innerHTML = "";
+            usedPixelsTableBody.textContent = "";
             const variablePixelsUsed = ("" + selectedPixelPartNumber).match("^variable.*$");
             document.getElementById("pieces-used-dimensions-header").hidden = !variablePixelsUsed;
             let pieceCountsForTable = {}; // map piece identifier strings to counts
@@ -2250,7 +2290,7 @@ function runStep4(asyncCallback) {
                 const colorSquare = getColorSquare(color);
                 colorCell.appendChild(colorSquare);
                 const colorLabel = document.createElement("small");
-                colorLabel.innerHTML = HEX_TO_COLOR_NAME[color] || color;
+                colorLabel.textContent = HEX_TO_COLOR_NAME[color] || color;
                 colorCell.appendChild(colorLabel);
                 studRow.appendChild(colorCell);
 
@@ -2262,7 +2302,7 @@ function runStep4(asyncCallback) {
                         "height: 100%; display: flex; flex-direction:column; justify-content: center";
                     const dimensionsCellChild2 = document.createElement("div");
                     dimensionsCellChild2.style = "";
-                    dimensionsCellChild2.innerHTML = pieceKey[1];
+                    dimensionsCellChild2.textContent = pieceKey[1];
 
                     dimensionsCellChild.appendChild(dimensionsCellChild2);
                     dimensionsCell.appendChild(dimensionsCellChild);
@@ -2275,7 +2315,7 @@ function runStep4(asyncCallback) {
                 numberCellChild.style = "height: 100%; display: flex; flex-direction:column; justify-content: center";
                 const numberCellChild2 = document.createElement("div");
                 numberCellChild2.style = "";
-                numberCellChild2.innerHTML = pieceCountsForTable[keyString];
+                numberCellChild2.textContent = pieceCountsForTable[keyString];
 
                 numberCellChild.appendChild(numberCellChild2);
                 numberCell.appendChild(numberCellChild);
@@ -2285,7 +2325,7 @@ function runStep4(asyncCallback) {
             });
 
             const missingPixelsTableBody = document.getElementById("studs-missing-table-body");
-            missingPixelsTableBody.innerHTML = "";
+            missingPixelsTableBody.textContent = "";
 
             let missingPixelsExist = false;
             if (!shouldSideStepStep4) {
@@ -2313,7 +2353,7 @@ function runStep4(asyncCallback) {
                         const colorSquare = getColorSquare(color);
                         colorCell.appendChild(colorSquare);
                         const colorLabel = document.createElement("small");
-                        colorLabel.innerHTML = HEX_TO_COLOR_NAME[color] || color;
+                        colorLabel.textContent = HEX_TO_COLOR_NAME[color] || color;
                         colorCell.appendChild(colorLabel);
                         studRow.appendChild(colorCell);
 
@@ -2324,7 +2364,7 @@ function runStep4(asyncCallback) {
                             "height: 100%; display: flex; flex-direction:column; justify-content: center";
                         const numberCellChild2 = document.createElement("div");
                         numberCellChild2.style = "";
-                        numberCellChild2.innerHTML = missingPixelsStudMap[color];
+                        numberCellChild2.textContent = missingPixelsStudMap[color];
 
                         numberCellChild.appendChild(numberCellChild2);
                         numberCell.appendChild(numberCellChild);
@@ -2396,7 +2436,7 @@ function setDPI(canvas, dpi) {
 
 async function generateInstructions() {
     const instructionsCanvasContainer = document.getElementById("instructions-canvas-container");
-    instructionsCanvasContainer.innerHTML = "";
+    instructionsCanvasContainer.textContent = "";
     disableInteraction();
     runStep4(async () => {
         const isHighQuality = document.getElementById("high-quality-instructions-check").checked;
@@ -2578,7 +2618,7 @@ function getUsedPlateMatrices(depthPixelArray) {
 
 async function generateDepthInstructions() {
     const instructionsCanvasContainer = document.getElementById("depth-instructions-canvas-container");
-    instructionsCanvasContainer.innerHTML = "";
+    instructionsCanvasContainer.textContent = "";
     disableInteraction();
 
     runStep4(async () => {
@@ -2594,7 +2634,7 @@ async function generateDepthInstructions() {
         document.getElementById("download-depth-instructions-button").hidden = true;
 
         const titlePageCanvas = document.createElement("canvas");
-        instructionsCanvasContainer.innerHTML = "";
+        instructionsCanvasContainer.textContent = "";
         instructionsCanvasContainer.appendChild(titlePageCanvas);
         generateDepthInstructionTitlePage(
             usedPlatesMatrices,
@@ -2637,7 +2677,7 @@ async function generateDepthInstructions() {
             }
 
             const instructionPageCanvas = document.createElement("canvas");
-            instructionsCanvasContainer.innerHTML = "";
+            instructionsCanvasContainer.textContent = "";
             instructionsCanvasContainer.appendChild(instructionPageCanvas);
 
             perDepthLevelMatrices = usedPlatesMatrices[i];
@@ -2786,7 +2826,7 @@ function triggerDepthMapGeneration() {
                     }, 50); // TODO: find better way to check that input is finished
                 }, 50); // TODO: find better way to check that input is finished
             } else if (loadingMessage != null) {
-                loadingMessageComponent.innerHTML = loadingMessage;
+                loadingMessageComponent.textContent = loadingMessage;
             } else {
                 console.log("Message from web worker: ", e.data);
             }
@@ -2833,7 +2873,7 @@ function handleInputImage(e, dontClearDepth, dontLog) {
         };
         inputImage.src = event.target.result;
         document.getElementById("steps-row").hidden = false;
-        document.getElementById("input-image-selector").innerHTML = "Reselect Input Image";
+        document.getElementById("input-image-selector").textContent = "Reselect Input Image";
         document.getElementById("image-input-new").appendChild(document.getElementById("image-input"));
         document.getElementById("image-input-card").hidden = true;
         document.getElementById("run-example-input-container").hidden = true;
@@ -3007,13 +3047,16 @@ window.addEventListener("appinstalled", () => {
     perfLoggingDatabase.ref("pwa-install-count/per-day/" + loggingTimestamp).transaction(incrementTransaction);
 });
 
-document.getElementById("toggle-tech-talk-button").addEventListener("click", () => {
-    // small hack so the iframe only renders when open
-    const youtubeWrapper = document.getElementById("responsive-youtube");
-    if (youtubeWrapper.innerHTML.match(/.*Loading.*/i)) {
-        youtubeWrapper.innerHTML = `<iframe width="560" height="315" src="https://www.youtube.com/embed/G58ZNurxXgQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowfullscreen></iframe>`;
-    }
-});
+var techTalkButton = document.getElementById("toggle-tech-talk-button");
+if (techTalkButton) {
+    techTalkButton.addEventListener("click", () => {
+        // small hack so the iframe only renders when open
+        const youtubeWrapper = document.getElementById("responsive-youtube");
+        if (youtubeWrapper && youtubeWrapper.innerHTML.match(/.*Loading.*/i)) {
+            youtubeWrapper.innerHTML = `<iframe width="560" height="315" src="https://www.youtube.com/embed/G58ZNurxXgQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen></iframe>`;
+        }
+    });
+}
 
 enableInteraction(); // enable interaction once everything has loaded in

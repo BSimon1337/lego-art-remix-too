@@ -1,3 +1,12 @@
+// Efficient shallow clone for stud maps (objects with primitive values)
+function cloneStudMap(map) {
+    const clone = {};
+    for (const key in map) {
+        clone[key] = map[key];
+    }
+    return clone;
+}
+
 function hexToRgb(hex) {
     const hexInt = parseInt(hex.replace("#", ""), 16);
     const r = (hexInt >> 16) & 255;
@@ -43,9 +52,7 @@ function drawPixelsOnCanvas(pixels, canvas) {
     const context = canvas.getContext("2d");
 
     const imageData = context.createImageData(canvas.width, canvas.height);
-    Object.keys(pixels).forEach((pixel) => {
-        imageData.data[pixel] = pixels[pixel];
-    });
+    imageData.data.set(pixels);
     context.putImageData(imageData, 0, 0);
 }
 
@@ -106,16 +113,13 @@ function alignPixelsToStudMap(inputPixels, studMap, colorDistanceFunction) {
     const anchorPixels = studMapToSortedColorList(studMap).map((pixel) => hexToRgb(pixel));
     for (let i = 0; i < inputPixels.length / 4; i++) {
         const targetPixelIndex = i * 4;
-        const pixelToAlign = [];
-        for (let j = 0; j < 3; j++) {
-            pixelToAlign.push(inputPixels[targetPixelIndex + j]);
-        }
+        const pixelToAlign = [inputPixels[targetPixelIndex], inputPixels[targetPixelIndex + 1], inputPixels[targetPixelIndex + 2]];
         let closestAnchorPixel = 0;
+        let closestDistance = colorDistanceFunction(pixelToAlign, anchorPixels[0]);
         for (let anchorPixelIndex = 1; anchorPixelIndex < anchorPixels.length; anchorPixelIndex++) {
-            if (
-                colorDistanceFunction(pixelToAlign, anchorPixels[anchorPixelIndex]) <
-                colorDistanceFunction(pixelToAlign, anchorPixels[closestAnchorPixel])
-            ) {
+            const distance = colorDistanceFunction(pixelToAlign, anchorPixels[anchorPixelIndex]);
+            if (distance < closestDistance) {
+                closestDistance = distance;
                 closestAnchorPixel = anchorPixelIndex;
             }
         }
@@ -131,26 +135,18 @@ function getAverageQuantizationError(pixels1, pixels2, colorDistanceFunction) {
     for (let i = 0; i < pixels1.length / 4; i++) {
         const targetPixelIndex = i * 4;
 
-        const pixel1 = [];
-        const pixel2 = [];
-        for (let j = 0; j < 3; j++) {
-            pixel1.push(pixels1[targetPixelIndex + j]);
-            pixel2.push(pixels2[targetPixelIndex + j]);
-        }
-
-        totalError += colorDistanceFunction(pixel1, pixel2);
+        totalError += colorDistanceFunction(
+            [pixels1[targetPixelIndex], pixels1[targetPixelIndex + 1], pixels1[targetPixelIndex + 2]],
+            [pixels2[targetPixelIndex], pixels2[targetPixelIndex + 1], pixels2[targetPixelIndex + 2]]
+        );
     }
     return totalError / (pixels1.length / 4);
 }
 
 function getArrayWithOverridesApplied(inputPixels, overridePixels) {
-    const resultPixels = [];
+    const resultPixels = new Array(inputPixels.length);
     for (let i = 0; i < inputPixels.length; i++) {
-        if (overridePixels[i] != null) {
-            resultPixels.push(overridePixels[i]);
-        } else {
-            resultPixels.push(inputPixels[i]);
-        }
+        resultPixels[i] = overridePixels[i] != null ? overridePixels[i] : inputPixels[i];
     }
     return resultPixels;
 }
@@ -170,7 +166,7 @@ function getUsedPixelsStudMap(inputPixels) {
 }
 
 function studMapDifference(map1, map2) {
-    const hexCodes = Array.from(new Set(studMapToSortedColorList(map1).concat(studMapToSortedColorList(map2))));
+    const hexCodes = Object.keys({...map1, ...map2});
     hexCodes.sort();
     const result = {};
     hexCodes.forEach((hexCode) => {
@@ -191,7 +187,7 @@ function correctPixelsForAvailableStuds(
     imageWidth,
     colorDistanceFunction
 ) {
-    availableStudMap = JSON.parse(JSON.stringify(availableStudMap)); // clone
+    availableStudMap = cloneStudMap(availableStudMap);
     const usedPixelStudMap = getUsedPixelsStudMap(anchorAlignedPixels);
     const remainingStudMap = studMapDifference(availableStudMap, usedPixelStudMap);
 
@@ -310,14 +306,14 @@ function correctPixelsForAvailableStuds(
         const problematicPixel = problematicPixels[i];
         const possibleReplacements = Object.keys(remainingStudMap);
         let replacement = possibleReplacements[0];
-        possibleReplacements.forEach((possibleReplacement) => {
-            if (
-                colorDistanceFunction(problematicPixel.originalRGB, hexToRgb(possibleReplacement)) <
-                colorDistanceFunction(problematicPixel.originalRGB, hexToRgb(replacement))
-            ) {
-                replacement = possibleReplacement;
+        let closestDist = colorDistanceFunction(problematicPixel.originalRGB, hexToRgb(replacement));
+        for (let j = 1; j < possibleReplacements.length; j++) {
+            const distance = colorDistanceFunction(problematicPixel.originalRGB, hexToRgb(possibleReplacements[j]));
+            if (distance < closestDist) {
+                closestDist = distance;
+                replacement = possibleReplacements[j];
             }
-        });
+        }
 
         // replace the pixel in correctedPixels with our replacement
         const pixelIndex = problematicPixel.index;
@@ -525,15 +521,17 @@ const SIERRA_DITHERING_KERNEL = [
 function findReplacement(pixelRGB, remainingStudMap, colorDistanceFunction) {
     const possibleReplacements = Object.keys(remainingStudMap);
     let replacement = possibleReplacements[0];
-    possibleReplacements.forEach((possibleReplacement) => {
-        if (
-            remainingStudMap[possibleReplacement] > 0 &&
-            colorDistanceFunction(pixelRGB, hexToRgb(possibleReplacement)) <
-                colorDistanceFunction(pixelRGB, hexToRgb(replacement))
-        ) {
-            replacement = possibleReplacement;
+    let closestDistance = colorDistanceFunction(pixelRGB, hexToRgb(replacement));
+    for (let i = 1; i < possibleReplacements.length; i++) {
+        const possibleReplacement = possibleReplacements[i];
+        if (remainingStudMap[possibleReplacement] > 0) {
+            const distance = colorDistanceFunction(pixelRGB, hexToRgb(possibleReplacement));
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                replacement = possibleReplacement;
+            }
         }
-    });
+    }
     return hexToRgb(replacement);
 }
 
@@ -545,7 +543,7 @@ function correctPixelsForAvailableStudsWithGreedyDynamicDithering(
     skipDithering,
     assumeInfinitePixelCounts
 ) {
-    availableStudMap = JSON.parse(JSON.stringify(availableStudMap)); // clone
+    availableStudMap = cloneStudMap(availableStudMap);
 
     // We use this to easily get adjacent pixels when propogating dithering error
     const pixelMatrix = [];
@@ -621,7 +619,8 @@ function correctPixelsForAvailableStudsWithGreedyDynamicDithering(
             const kernelRowMiddle = Math.floor(kernelHeight / 2);
             const kernelColMiddle = Math.floor(kernelWidth / 2);
 
-            let totalNeighborhoodPixels = 0;
+            // Collect valid neighbors and their kernel weights in a single pass
+            const validNeighbors = [];
             let errorDenominator = 0;
             for (let kr = 0; kr < kernelHeight; kr++) {
                 for (let kc = 0; kc < kernelWidth; kc++) {
@@ -630,69 +629,63 @@ function correctPixelsForAvailableStudsWithGreedyDynamicDithering(
                         const pixelMatrixCol = nextPixel.col - kernelColMiddle + kc;
                         const neighborhoodPixel = (pixelMatrix[pixelMatrixRow] || {})[pixelMatrixCol];
                         if (neighborhoodPixel != null && neighborhoodPixel.isInPixelQueue) {
-                            totalNeighborhoodPixels++;
-                            errorDenominator += kernel[kr][kc];
+                            const weight = kernel[kr][kc];
+                            validNeighbors.push({ pixel: neighborhoodPixel, weight });
+                            errorDenominator += weight;
                         }
                     }
                 }
             }
 
             if (errorDenominator > 0) {
-                for (let kr = 0; kr < kernelHeight; kr++) {
-                    for (let kc = 0; kc < kernelWidth; kc++) {
-                        if (kr != kernelRowMiddle || kc != kernelColMiddle) {
-                            const pixelMatrixRow = nextPixel.row - kernelRowMiddle + kr;
-                            const pixelMatrixCol = nextPixel.col - kernelColMiddle + kc;
-                            const neighborhoodPixel = (pixelMatrix[pixelMatrixRow] || {})[pixelMatrixCol];
-                            if (neighborhoodPixel != null && neighborhoodPixel.isInPixelQueue) {
-                                // add in error
-                                const errorWeight = kernel[kr][kc] / errorDenominator;
-                                neighborhoodPixel.pixelRGB = [0, 1, 2].map((channel) =>
-                                    clamp255(
-                                        neighborhoodPixel.pixelRGB[channel] +
-                                            dequeuedPixelQuantizationError[channel] * errorWeight
-                                    )
-                                );
+                for (let ni = 0; ni < validNeighbors.length; ni++) {
+                    const neighborhoodPixel = validNeighbors[ni].pixel;
+                    const errorWeight = validNeighbors[ni].weight / errorDenominator;
+                    neighborhoodPixel.pixelRGB = [0, 1, 2].map((channel) =>
+                        clamp255(
+                            neighborhoodPixel.pixelRGB[channel] +
+                                dequeuedPixelQuantizationError[channel] * errorWeight
+                        )
+                    );
 
-                                const tentativeReplacementRGB = findReplacement(
-                                    neighborhoodPixel.pixelRGB,
-                                    availableStudMap,
-                                    colorDistanceFunction
-                                );
-                                const tentativeReplacementDistance = colorDistanceFunction(
-                                    neighborhoodPixel.pixelRGB,
-                                    tentativeReplacementRGB
-                                );
-                                const oldReplacementRGB = neighborhoodPixel.tentativeReplacementRGB;
-                                neighborhoodPixel.tentativeReplacementRGB = tentativeReplacementRGB;
-                                neighborhoodPixel.tentativeReplacementDistance = tentativeReplacementDistance;
+                    const tentativeReplacementRGB = findReplacement(
+                        neighborhoodPixel.pixelRGB,
+                        availableStudMap,
+                        colorDistanceFunction
+                    );
+                    const tentativeReplacementDistance = colorDistanceFunction(
+                        neighborhoodPixel.pixelRGB,
+                        tentativeReplacementRGB
+                    );
+                    const oldReplacementRGB = neighborhoodPixel.tentativeReplacementRGB;
+                    neighborhoodPixel.tentativeReplacementRGB = tentativeReplacementRGB;
+                    neighborhoodPixel.tentativeReplacementDistance = tentativeReplacementDistance;
 
-                                if (
-                                    oldReplacementRGB[0] != neighborhoodPixel.tentativeReplacementRGB[0] ||
-                                    oldReplacementRGB[1] != neighborhoodPixel.tentativeReplacementRGB[1] ||
-                                    oldReplacementRGB[2] != neighborhoodPixel.tentativeReplacementRGB[2]
-                                ) {
-                                    pixelQueue.remove(neighborhoodPixel);
-                                    pixelQueue.add(neighborhoodPixel);
-                                }
-                            }
-                        }
+                    if (
+                        oldReplacementRGB[0] != neighborhoodPixel.tentativeReplacementRGB[0] ||
+                        oldReplacementRGB[1] != neighborhoodPixel.tentativeReplacementRGB[1] ||
+                        oldReplacementRGB[2] != neighborhoodPixel.tentativeReplacementRGB[2]
+                    ) {
+                        pixelQueue.remove(neighborhoodPixel);
+                        pixelQueue.add(neighborhoodPixel);
                     }
                 }
             }
         }
     }
 
-    const result = [];
-    pixelMatrix.forEach((row) =>
-        row.forEach((pixel) => {
-            pixel.tentativeReplacementRGB.forEach((channel) => {
-                result.push(channel);
-            });
-            result.push(255);
-        })
-    );
-    return new Uint8ClampedArray(result);
+    const result = new Uint8ClampedArray(imageWidth * height * 4);
+    let idx = 0;
+    for (let row = 0; row < height; row++) {
+        for (let col = 0; col < imageWidth; col++) {
+            const rgb = pixelMatrix[row][col].tentativeReplacementRGB;
+            result[idx++] = rgb[0];
+            result[idx++] = rgb[1];
+            result[idx++] = rgb[2];
+            result[idx++] = 255;
+        }
+    }
+    return result;
 }
 
 function alignPixelsWithTraditionalDithering(
@@ -702,7 +695,7 @@ function alignPixelsWithTraditionalDithering(
     colorDistanceFunction,
     kernel
 ) {
-    availableStudMap = JSON.parse(JSON.stringify(availableStudMap)); // clone
+    availableStudMap = cloneStudMap(availableStudMap);
 
     // We use this to easily get adjacent pixels when propogating dithering error
     const pixelMatrix = [];
@@ -751,16 +744,18 @@ function alignPixelsWithTraditionalDithering(
         }
     }
 
-    const result = [];
+    const totalPixels = pixelMatrix.reduce((sum, row) => sum + row.length, 0);
+    const result = new Uint8ClampedArray(totalPixels * 4);
+    let idx = 0;
     pixelMatrix.forEach((row) =>
         row.forEach((pixel) => {
-            pixel.pixelRGB.forEach((channel) => {
-                result.push(channel);
-            });
-            result.push(255);
+            result[idx++] = pixel.pixelRGB[0];
+            result[idx++] = pixel.pixelRGB[1];
+            result[idx++] = pixel.pixelRGB[2];
+            result[idx++] = 255;
         })
     );
-    return new Uint8ClampedArray(result);
+    return result;
 }
 
 // input: r,g,b in [0,1], out: h in [0,360) and s,v in [0,1]
@@ -1325,8 +1320,8 @@ function resizeImageArrayWithAdaptivePooling(input2DArray, outputWidth, outputHe
             const endH = Math.ceil(((h + 1) * input2DArray.length) / outputHeight);
 
             const kernelPixels = [];
-            for (k_w = startW; k_w < endW; k_w++) {
-                for (k_h = startH; k_h < endH; k_h++) {
+            for (let k_w = startW; k_w < endW; k_w++) {
+                for (let k_h = startH; k_h < endH; k_h++) {
                     kernelPixels.push(input2DArray[k_h][k_w]);
                 }
             }
@@ -1352,16 +1347,18 @@ function resizeImagePixelsWithAdaptivePooling(
         subArrayPoolingFunction
     );
 
-    const result = [];
+    const totalPixels = outputPixels.reduce((sum, row) => sum + row.length, 0);
+    const result = new Uint8ClampedArray(totalPixels * 4);
+    let idx = 0;
     outputPixels.forEach((row) => {
         row.forEach((pixel) => {
-            pixel.forEach((channel) => {
-                result.push(channel);
-            });
-            result.push(255); // opacity
+            result[idx++] = pixel[0];
+            result[idx++] = pixel[1];
+            result[idx++] = pixel[2];
+            result[idx++] = 255; // opacity
         });
     });
-    return new Uint8ClampedArray(result);
+    return result;
 }
 
 function getRequiredPartMatrixFromSetPixelMatrix(
@@ -1380,7 +1377,7 @@ function getRequiredPartMatrixFromSetPixelMatrix(
         }
     }
 
-    partDimensions = JSON.parse(JSON.stringify(partDimensions));
+    partDimensions = partDimensions.map(dims => [...dims]);
     partDimensions.sort(
         // sort in decreasing order of area
         // break ties on the second dimension

@@ -1,13 +1,14 @@
 // IMPORTANT: Run rebuild steps when making logic changes
-const VERSION_NUMBER = "v2022.12.11";
+const fs = require("fs");
+const versionFile = fs.readFileSync("app/js/version.js", "utf8");
+const VERSION_NUMBER = versionFile.match(/VERSION_NUMBER\s*=\s*"([^"]+)"/)[1];
 
 // Rebuild steps
 // TODO: add a package.json and script to run all deployment steps
-// 1. Update VERSION_NUMBER in this file
-// 2. Update VERSION_NUMBER in `app/js/index.js`
-// 3. Run `npm install workbox-build` if it hasn't been run
-// 4. Run `node build-service-worker.js`
-// 5. Copy files from `app` into the static deployment thingy
+// 1. Update VERSION_NUMBER in `app/js/version.js`
+// 2. Run `npm install workbox-build` if it hasn't been run
+// 3. Run `node build-service-worker.js`
+// 4. Copy files from `app` into the static deployment thingy
 
 const workboxBuild = require("workbox-build");
 const buildSW = () => {
