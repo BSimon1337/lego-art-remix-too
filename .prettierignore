@@ -1,0 +1,10 @@
+node_modules
+dist
+app/js/*.min.js
+app/js/onnx.min.js
+app/js/ndarray-browser-min.js
+app/js/heap.js
+app/js/stud-maps.js
+app/js/bricklink-colors.js
+app/service-worker.js
+app/workbox-*.js

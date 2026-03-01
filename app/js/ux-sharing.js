@@ -3,6 +3,50 @@
 // export PNG/SVG, simple palette storage, basic cost estimator, batch process scaffold.
 
 (function () {
+    function getAppBridge() {
+        return window.AppBridge || {};
+    }
+
+    function getVersionNumber() {
+        const bridge = getAppBridge();
+        return bridge.getVersionNumber ? bridge.getVersionNumber() : (window.VERSION_NUMBER || null);
+    }
+
+    function getCustomStudTableBody() {
+        const bridge = getAppBridge();
+        return bridge.getCustomStudTableBody ? bridge.getCustomStudTableBody() : null;
+    }
+
+    function getHexToColorNameMap() {
+        const bridge = getAppBridge();
+        return bridge.getHexToColorNameMap ? bridge.getHexToColorNameMap() : {};
+    }
+
+    function getAllBricklinkSolidColors() {
+        const bridge = getAppBridge();
+        return bridge.getAllBricklinkSolidColors ? bridge.getAllBricklinkSolidColors() : [];
+    }
+
+    function createNewCustomStudRow() {
+        const bridge = getAppBridge();
+        return bridge.getNewCustomStudRow ? bridge.getNewCustomStudRow() : null;
+    }
+
+    function runCustomStudMapBridge() {
+        const bridge = getAppBridge();
+        if (bridge.runCustomStudMap) {
+            bridge.runCustomStudMap();
+        }
+    }
+
+    function handleInputImageBridge(e, dontClearDepth, dontLog) {
+        const bridge = getAppBridge();
+        if (bridge.handleInputImage) {
+            return bridge.handleInputImage(e, dontClearDepth, dontLog);
+        }
+        return null;
+    }
+
     function log(...args) {
         if (window.console) console.log('[ux-sharing]', ...args);
     }
@@ -23,7 +67,7 @@
     function getProjectState() {
         const state = {};
         try {
-            state.version = (typeof VERSION_NUMBER !== 'undefined') ? VERSION_NUMBER : null;
+            state.version = getVersionNumber();
             state.width = getElement('width-slider') ? getElement('width-slider').value : null;
             state.height = getElement('height-slider') ? getElement('height-slider').value : null;
             const inputCanvas = getElement('input-canvas');
@@ -297,17 +341,20 @@
                 applyBtn.innerText = 'Apply Palette';
                 applyBtn.onclick = () => {
                     // apply: clear custom table and add rows for each color
+                    const customStudTableBody = getCustomStudTableBody();
                     if (!customStudTableBody) {
                         alert('Custom studs table not found');
                         return;
                     }
                     customStudTableBody.innerHTML = '';
                     p.colors.forEach(hex => {
-                        const studRow = getNewCustomStudRow();
+                        const studRow = createNewCustomStudRow();
+                        if (!studRow) return;
                         // set color square
                         try {
                             studRow.children[0].children[0].children[0].children[0].style.backgroundColor = hex;
-                            studRow.children[0].children[0].setAttribute('title', HEX_TO_COLOR_NAME && HEX_TO_COLOR_NAME[hex] ? HEX_TO_COLOR_NAME[hex] : hex);
+                            const colorNameMap = getHexToColorNameMap();
+                            studRow.children[0].children[0].setAttribute('title', colorNameMap[hex] ? colorNameMap[hex] : hex);
                         } catch (e) {}
                         // set default count if number input exists
                         try {
@@ -316,7 +363,7 @@
                         } catch (e) {}
                         customStudTableBody.appendChild(studRow);
                     });
-                    runCustomStudMap();
+                    runCustomStudMapBridge();
                     overlay.remove();
                 };
                 const editBtn = document.createElement('button');
@@ -380,7 +427,7 @@
         colorGrid.style = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(36px, 1fr)); gap:6px; margin-bottom:8px; max-height:150px; overflow-y:auto; padding:8px; border:1px solid #ddd; border-radius:4px;';
         
         const selectedColors = [];
-        const palette = (typeof ALL_BRICKLINK_SOLID_COLORS !== 'undefined') ? ALL_BRICKLINK_SOLID_COLORS : [];
+        const palette = getAllBricklinkSolidColors();
         
         // palette health indicator
         const healthDiv = document.createElement('div');
@@ -516,7 +563,7 @@
         const step = Math.max(1, Math.floor(Math.sqrt((totalPixels)/maxSamples)));
         const counts = {};
         // precompute palette rgb
-        const palette = (typeof ALL_BRICKLINK_SOLID_COLORS !== 'undefined') ? ALL_BRICKLINK_SOLID_COLORS : [];
+        const palette = getAllBricklinkSolidColors();
         const paletteRgb = palette.map(p=>({hex:p.hex, name:p.name, rgb:hexToRgbLocal(p.hex)}));
         for (let y=0;y<h;y+=step) {
             for (let x=0;x<w;x+=step) {
@@ -531,7 +578,8 @@
                 if (best) counts[best.hex] = (counts[best.hex]||0)+1;
             }
         }
-        const entries = Object.keys(counts).map(hex=>({hex, count:counts[hex], name:(HEX_TO_COLOR_NAME && HEX_TO_COLOR_NAME[hex])|| (palette.find(p=>p.hex===hex)||{}).name || hex}));
+        const colorNameMap = getHexToColorNameMap();
+        const entries = Object.keys(counts).map(hex=>({hex, count:counts[hex], name:(colorNameMap[hex]) || (palette.find(p=>p.hex===hex)||{}).name || hex}));
         entries.sort((a,b)=>b.count-a.count);
         const topK = entries.slice(0,k||12);
         showRecommendationOverlay(topK);
@@ -628,10 +676,11 @@
                         // attempt to trigger the same function index.js uses for input selection
                         try {
                             const eFake = { target: { files: [file] } };
-                            if (typeof handleInputImage === 'function') {
-                                handleInputImage(eFake, true, true);
-                            } else {
+                            const maybePromise = handleInputImageBridge(eFake, true, true);
+                            if (maybePromise == null) {
                                 alert('Processing function not available; please run manually.');
+                            } else {
+                                Promise.resolve(maybePromise).catch((err) => log('batch process error', err));
                             }
                         } catch (e) {
                             log('batch process error', e);
@@ -701,3 +750,5 @@
         log('init error', e);
     }
 })();
+
+export {};

@@ -30,40 +30,22 @@ try {
     // we don't care if this fails
 }
 
+const appUtils = window.LARCoreUiUtils;
+
 function incrementTransaction(count) {
-    return (count || 0) + 1;
+    return appUtils.incrementTransaction(count);
 }
 
 function debounce(fn, delay) {
-    let timer;
-    return function (...args) {
-        clearTimeout(timer);
-        timer = setTimeout(() => fn.apply(this, args), delay);
-    };
+    return appUtils.debounce(fn, delay);
 }
 
 function bindSliderButtons(sliderId, incrementId, decrementId, changeCallback) {
-    const slider = document.getElementById(sliderId);
-    document.getElementById(incrementId).addEventListener(
-        "click",
-        () => {
-            if (Number(slider.value) < Number(slider.max)) {
-                slider.value = Number(slider.value) + 1;
-                changeCallback();
-            }
-        },
-        false
-    );
-    document.getElementById(decrementId).addEventListener(
-        "click",
-        () => {
-            if (Number(slider.value) > Number(slider.min)) {
-                slider.value = Number(slider.value) - 1;
-                changeCallback();
-            }
-        },
-        false
-    );
+    appUtils.bindSliderButtons(sliderId, incrementId, decrementId, changeCallback);
+}
+
+function setLoadingMessage(message) {
+    appUtils.setLoadingMessage(message);
 }
 
 const LOW_DPI = 48;
@@ -360,46 +342,41 @@ document.getElementById("bricklink-piece-button").textContent = PIXEL_TYPE_OPTIO
 let overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
 let overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
 
-// Undo/redo stacks for override painting
+// Undo/redo history for override painting
 const MAX_UNDO_HISTORY = 50;
-let undoStack = [];
-let redoStack = [];
+let overrideHistory;
 
 function saveUndoState() {
-    undoStack.push(overridePixelArray.slice());
-    if (undoStack.length > MAX_UNDO_HISTORY) {
-        undoStack.shift();
-    }
-    redoStack = [];
-    updateUndoRedoButtons();
+    overrideHistory.save();
 }
 
 function undoOverride() {
-    if (undoStack.length === 0) return;
-    redoStack.push(overridePixelArray.slice());
-    overridePixelArray = undoStack.pop();
-    updateUndoRedoButtons();
-    runStep2();
+    overrideHistory.undo();
 }
 
 function redoOverride() {
-    if (redoStack.length === 0) return;
-    undoStack.push(overridePixelArray.slice());
-    overridePixelArray = redoStack.pop();
-    updateUndoRedoButtons();
-    runStep2();
+    overrideHistory.redo();
 }
 
 function updateUndoRedoButtons() {
-    document.getElementById("undo-override-button").disabled = undoStack.length === 0;
-    document.getElementById("redo-override-button").disabled = redoStack.length === 0;
+    document.getElementById("undo-override-button").disabled = !overrideHistory.canUndo();
+    document.getElementById("redo-override-button").disabled = !overrideHistory.canRedo();
 }
 
 function clearUndoHistory() {
-    undoStack = [];
-    redoStack = [];
-    updateUndoRedoButtons();
+    overrideHistory.clear();
 }
+
+overrideHistory = window.LAROverrideHistory.create({
+    maxHistory: MAX_UNDO_HISTORY,
+    getOverrideArray: () => overridePixelArray,
+    setOverrideArray: (nextValue) => {
+        overridePixelArray = nextValue;
+    },
+    onStateChange: updateUndoRedoButtons,
+    afterApply: runStep2,
+});
+updateUndoRedoButtons();
 
 // Brush size
 let brushSize = 1;
@@ -407,18 +384,6 @@ document.getElementById("brush-size-slider").addEventListener("input", function 
     brushSize = Number(this.value);
     document.getElementById("brush-size-text").textContent = brushSize;
 });
-
-// Progress message helper
-function setLoadingMessage(message) {
-    const el = document.getElementById("loading-status-message");
-    if (message) {
-        el.textContent = message;
-        el.style.display = "block";
-    } else {
-        el.style.display = "none";
-        el.textContent = "";
-    }
-}
 
 // Dark mode toggle
 document.getElementById("dark-mode-toggle").addEventListener("click", function () {
@@ -1260,9 +1225,10 @@ function runStep1() {
         step1CanvasUpscaled.width,
         step1CanvasUpscaled.height
     );
-    setTimeout(() => {
+    void (async () => {
+        await waitForNextFrame();
         runStep2();
-    }, 1);
+    })();
 }
 
 function runStep2() {
@@ -1358,7 +1324,8 @@ function runStep2() {
     );
     drawPixelsOnCanvas(discreteDepthPixels, step2DepthCanvas);
 
-    setTimeout(() => {
+    void (async () => {
+        await waitForNextFrame();
         runStep3();
         step2CanvasUpscaled.width = targetResolution[0] * SCALING_FACTOR;
         step2CanvasUpscaled.height = targetResolution[1] * SCALING_FACTOR;
@@ -1382,7 +1349,7 @@ function runStep2() {
             step2DepthCanvasUpscaled,
             selectedPixelPartNumber
         );
-    }, 1);
+    })();
 }
 
 function getVariablePixelAvailablePartDimensions() {
@@ -1520,7 +1487,8 @@ function runStep3() {
     );
     document.getElementById("step-3-quantization-error").textContent = step3QuantizationError.toFixed(3);
 
-    setTimeout(() => {
+    void (async () => {
+        await waitForNextFrame();
         if (!isStep3ViewExpanded) {
             runStep4();
         } else {
@@ -1552,7 +1520,7 @@ function runStep3() {
             step3DepthCanvasUpscaled,
             selectedPixelPartNumber
         );
-    }, 1);
+    })();
 }
 
 let isStep3ViewExpanded = false;
@@ -2087,13 +2055,14 @@ function create3dPreview() {
         depthMap,
         displacementFilter,
     };
-    setTimeout(depthPreviewResize, 5);
+    requestAnimationFrame(depthPreviewResize);
 }
 
-document.getElementById("step-4-depth-tab").addEventListener("click", () => {
+document.getElementById("step-4-depth-tab").addEventListener("click", async () => {
     const targetWidth = step4CanvasUpscaled.clientWidth;
     step4Canvas3dUpscaled.clientWidth = targetWidth;
-    setTimeout(create3dPreview, 20);
+    await waitForNextFrame();
+    create3dPreview();
 });
 
 function depthPreviewResize() {
@@ -2227,7 +2196,8 @@ function runStep4(asyncCallback) {
         );
         document.getElementById("step-4-quantization-error").textContent = step4QuantizationError.toFixed(3);
 
-        setTimeout(async () => {
+        void (async () => {
+            await waitForNextFrame();
             step4CanvasUpscaledContext.imageSmoothingEnabled = false;
             const pixelsToDraw = isBleedthroughEnabled()
                 ? revertDarkenedImage(
@@ -2377,13 +2347,14 @@ function runStep4(asyncCallback) {
             document.getElementById("studs-missing-container").hidden = !missingPixelsExist;
 
             if (document.getElementById("step-4-depth-tab").className.includes("active")) {
-                setTimeout(create3dPreview, 50); // TODO: find better way to check that input is finished
+                await waitForNextFrame();
+                create3dPreview();
             }
             if (asyncCallback) {
                 await asyncCallback();
             }
             enableInteraction();
-        }, 1); // TODO: find better way to check that input is finished
+        })();
     } catch (_e) {
         enableInteraction();
     }
@@ -2773,168 +2744,219 @@ document.getElementById("export-depth-to-bricklink-button").addEventListener("cl
 });
 
 function triggerDepthMapGeneration() {
-    disableInteraction();
-    const worker = new Worker("js/depth-map-web-worker.js");
-
-    const loadingMessageComponent = document.getElementById("web-worker-loading-message");
-    loadingMessageComponent.hidden = false;
-
-    webWorkerInputCanvas.width = CNN_INPUT_IMAGE_WIDTH;
-    webWorkerInputCanvas.height = CNN_INPUT_IMAGE_HEIGHT;
-    webWorkerInputCanvasContext.drawImage(
-        inputImage,
-        0,
-        0,
-        inputImage.width,
-        inputImage.height,
-        0,
-        0,
-        CNN_INPUT_IMAGE_WIDTH,
-        CNN_INPUT_IMAGE_HEIGHT
-    );
-    setTimeout(() => {
-        const inputPixelArray = getPixelArrayFromCanvas(webWorkerInputCanvas);
-        worker.postMessage({
-            inputPixelArray,
-        });
-
-        worker.addEventListener("message", (e) => {
-            const { result, loadingMessage } = e.data;
-            if (result != null) {
-                webWorkerOutputCanvas.width = CNN_INPUT_IMAGE_WIDTH;
-                webWorkerOutputCanvas.height = CNN_INPUT_IMAGE_HEIGHT;
-                drawPixelsOnCanvas(result, webWorkerOutputCanvas);
-                setTimeout(() => {
-                    inputDepthCanvas.width = SERIALIZE_EDGE_LENGTH;
-                    inputDepthCanvas.height = SERIALIZE_EDGE_LENGTH;
-                    inputDepthCanvasContext.drawImage(
-                        webWorkerOutputCanvas,
-                        0,
-                        0,
-                        CNN_INPUT_IMAGE_WIDTH,
-                        CNN_INPUT_IMAGE_HEIGHT,
-                        0,
-                        0,
-                        SERIALIZE_EDGE_LENGTH,
-                        SERIALIZE_EDGE_LENGTH
-                    );
-                    setTimeout(() => {
-                        loadingMessageComponent.hidden = true;
-                        enableInteraction();
-                        overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
-                        runStep1();
-                    }, 50); // TODO: find better way to check that input is finished
-                }, 50); // TODO: find better way to check that input is finished
-            } else if (loadingMessage != null) {
-                loadingMessageComponent.textContent = loadingMessage;
-            } else {
-                console.log("Message from web worker: ", e.data);
-            }
-        });
-    }, 50); // TODO: find better way to check that input is finished
+    void triggerDepthMapGenerationAsync();
 }
 
 document.getElementById("generate-depth-image").addEventListener("click", triggerDepthMapGeneration);
 
 const SERIALIZE_EDGE_LENGTH = 512;
 
-function handleInputImage(e, dontClearDepth, dontLog) {
-    const reader = new FileReader();
-    reader.onload = function (event) {
-        inputImage = new Image();
-        inputImage.onload = function () {
-            inputCanvas.width = SERIALIZE_EDGE_LENGTH;
-            inputCanvas.height = SERIALIZE_EDGE_LENGTH;
-            inputCanvasContext.drawImage(
-                inputImage,
-                0,
-                0,
-                inputImage.width,
-                inputImage.height,
-                0,
-                0,
-                SERIALIZE_EDGE_LENGTH,
-                SERIALIZE_EDGE_LENGTH
+function waitForNextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve(event.target.result);
+        reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+    });
+}
+
+function loadImageFromSource(source) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("Failed to load image"));
+        image.src = source;
+    });
+}
+
+async function triggerDepthMapGenerationAsync() {
+    disableInteraction();
+    const worker = new Worker("js/depth-map-web-worker.js");
+    const loadingMessageComponent = document.getElementById("web-worker-loading-message");
+    loadingMessageComponent.hidden = false;
+
+    try {
+        if (!inputImage) {
+            throw new Error("No input image selected");
+        }
+
+        webWorkerInputCanvas.width = CNN_INPUT_IMAGE_WIDTH;
+        webWorkerInputCanvas.height = CNN_INPUT_IMAGE_HEIGHT;
+        webWorkerInputCanvasContext.drawImage(
+            inputImage,
+            0,
+            0,
+            inputImage.width,
+            inputImage.height,
+            0,
+            0,
+            CNN_INPUT_IMAGE_WIDTH,
+            CNN_INPUT_IMAGE_HEIGHT
+        );
+        await waitForNextFrame();
+
+        const result = await new Promise((resolve, reject) => {
+            worker.addEventListener(
+                "error",
+                (event) => {
+                    reject(event.error || new Error("Depth worker failed"));
+                },
+                { once: true }
             );
 
-            // remove transparency
-            const inputImagePixels = getPixelArrayFromCanvas(inputCanvas);
-            for (var i = 3; i < inputImagePixels.length; i += 4) {
-                inputImagePixels[i] = 255;
-            }
-            drawPixelsOnCanvas(inputImagePixels, inputCanvas);
+            worker.addEventListener("message", (event) => {
+                const { result: output, loadingMessage } = event.data;
+                if (output != null) {
+                    resolve(output);
+                    return;
+                }
+                if (loadingMessage != null) {
+                    loadingMessageComponent.textContent = loadingMessage;
+                    return;
+                }
+                console.log("Message from web worker: ", event.data);
+            });
 
-            if (!dontClearDepth) {
-                inputDepthCanvas.width = SERIALIZE_EDGE_LENGTH;
-                inputDepthCanvas.height = SERIALIZE_EDGE_LENGTH;
-                inputDepthCanvasContext.fillStyle = "black";
-                inputDepthCanvasContext.fillRect(0, 0, inputDepthCanvas.width, inputDepthCanvas.height);
-            }
-        };
-        inputImage.src = event.target.result;
+            const inputPixelArray = getPixelArrayFromCanvas(webWorkerInputCanvas);
+            worker.postMessage({ inputPixelArray });
+        });
+
+        webWorkerOutputCanvas.width = CNN_INPUT_IMAGE_WIDTH;
+        webWorkerOutputCanvas.height = CNN_INPUT_IMAGE_HEIGHT;
+        drawPixelsOnCanvas(result, webWorkerOutputCanvas);
+
+        inputDepthCanvas.width = SERIALIZE_EDGE_LENGTH;
+        inputDepthCanvas.height = SERIALIZE_EDGE_LENGTH;
+        inputDepthCanvasContext.drawImage(
+            webWorkerOutputCanvas,
+            0,
+            0,
+            CNN_INPUT_IMAGE_WIDTH,
+            CNN_INPUT_IMAGE_HEIGHT,
+            0,
+            0,
+            SERIALIZE_EDGE_LENGTH,
+            SERIALIZE_EDGE_LENGTH
+        );
+        await waitForNextFrame();
+
+        overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
+        enableInteraction();
+        runStep1();
+    } catch (err) {
+        console.error("Depth generation failed", err);
+        enableInteraction();
+    } finally {
+        loadingMessageComponent.hidden = true;
+        loadingMessageComponent.textContent = "";
+        worker.terminate();
+    }
+}
+
+async function handleInputImage(e, dontClearDepth, dontLog) {
+    const file = e?.target?.files?.[0];
+    if (!file) return;
+
+    try {
+        const imageSource = await readFileAsDataURL(file);
+        inputImage = await loadImageFromSource(imageSource);
+
+        inputCanvas.width = SERIALIZE_EDGE_LENGTH;
+        inputCanvas.height = SERIALIZE_EDGE_LENGTH;
+        inputCanvasContext.drawImage(
+            inputImage,
+            0,
+            0,
+            inputImage.width,
+            inputImage.height,
+            0,
+            0,
+            SERIALIZE_EDGE_LENGTH,
+            SERIALIZE_EDGE_LENGTH
+        );
+
+        // remove transparency
+        const inputImagePixels = getPixelArrayFromCanvas(inputCanvas);
+        for (var i = 3; i < inputImagePixels.length; i += 4) {
+            inputImagePixels[i] = 255;
+        }
+        drawPixelsOnCanvas(inputImagePixels, inputCanvas);
+
+        if (!dontClearDepth) {
+            inputDepthCanvas.width = SERIALIZE_EDGE_LENGTH;
+            inputDepthCanvas.height = SERIALIZE_EDGE_LENGTH;
+            inputDepthCanvasContext.fillStyle = "black";
+            inputDepthCanvasContext.fillRect(0, 0, inputDepthCanvas.width, inputDepthCanvas.height);
+        }
+
         document.getElementById("steps-row").hidden = false;
         document.getElementById("input-image-selector").textContent = "Reselect Input Image";
         document.getElementById("image-input-new").appendChild(document.getElementById("image-input"));
         document.getElementById("image-input-card").hidden = true;
         document.getElementById("run-example-input-container").hidden = true;
-        setTimeout(() => {
-            step1CanvasUpscaled.width = SERIALIZE_EDGE_LENGTH;
-            step1CanvasUpscaled.height = Math.floor((SERIALIZE_EDGE_LENGTH * inputImage.height) / inputImage.width);
-            step1CanvasUpscaledContext.drawImage(
-                inputCanvas,
-                0,
-                0,
-                SERIALIZE_EDGE_LENGTH,
-                SERIALIZE_EDGE_LENGTH,
-                0,
-                0,
-                step1CanvasUpscaled.width,
-                step1CanvasUpscaled.height
-            );
 
-            overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
-            overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
-            initializeCropper();
-            runStep1();
-        }, 50); // TODO: find better way to check that input is finished
+        await waitForNextFrame();
+        step1CanvasUpscaled.width = SERIALIZE_EDGE_LENGTH;
+        step1CanvasUpscaled.height = Math.floor((SERIALIZE_EDGE_LENGTH * inputImage.height) / inputImage.width);
+        step1CanvasUpscaledContext.drawImage(
+            inputCanvas,
+            0,
+            0,
+            SERIALIZE_EDGE_LENGTH,
+            SERIALIZE_EDGE_LENGTH,
+            0,
+            0,
+            step1CanvasUpscaled.width,
+            step1CanvasUpscaled.height
+        );
+
+        overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
+        overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
+        initializeCropper();
+        runStep1();
 
         if (!dontLog) {
             perfLoggingDatabase.ref("input-image-count/total").transaction(incrementTransaction);
             const loggingTimestamp = Math.floor((Date.now() - (Date.now() % 8.64e7)) / 1000); // 8.64e+7 = ms in day
             perfLoggingDatabase.ref("input-image-count/per-day/" + loggingTimestamp).transaction(incrementTransaction);
         }
-    };
-    reader.readAsDataURL(e.target.files[0]);
+    } catch (err) {
+        console.error("Input image processing failed", err);
+        enableInteraction();
+    }
 }
 
-function handleInputDepthMapImage(e) {
-    const reader = new FileReader();
+async function handleInputDepthMapImage(e) {
+    const file = e?.target?.files?.[0];
+    if (!file) return;
     overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
-    reader.onload = function (event) {
-        inputImage = new Image();
-        inputImage.onload = function () {
-            inputDepthCanvas.width = SERIALIZE_EDGE_LENGTH;
-            inputDepthCanvas.height = SERIALIZE_EDGE_LENGTH;
-            inputDepthCanvasContext.drawImage(
-                inputImage,
-                0,
-                0,
-                inputImage.width,
-                inputImage.height,
-                0,
-                0,
-                SERIALIZE_EDGE_LENGTH,
-                SERIALIZE_EDGE_LENGTH
-            );
-        };
-        inputImage.src = event.target.result;
-        setTimeout(() => {
-            runStep1();
-        }, 50); // TODO: find better way to check that input is finished
 
-        // TODO: log for perf estimation?
-    };
-    reader.readAsDataURL(e.target.files[0]);
+    try {
+        const depthSource = await readFileAsDataURL(file);
+        const depthImage = await loadImageFromSource(depthSource);
+        inputDepthCanvas.width = SERIALIZE_EDGE_LENGTH;
+        inputDepthCanvas.height = SERIALIZE_EDGE_LENGTH;
+        inputDepthCanvasContext.drawImage(
+            depthImage,
+            0,
+            0,
+            depthImage.width,
+            depthImage.height,
+            0,
+            0,
+            SERIALIZE_EDGE_LENGTH,
+            SERIALIZE_EDGE_LENGTH
+        );
+        await waitForNextFrame();
+        runStep1();
+    } catch (err) {
+        console.error("Depth map input failed", err);
+        enableInteraction();
+    }
 }
 
 const EXAMPLES_BASE_URL = "assets/png/";
@@ -2944,53 +2966,49 @@ const EXAMPLES = [
         depthFile: "lenna-depth.png",
     },
 ];
-document.getElementById("run-example-input").addEventListener("click", () => {
+document.getElementById("run-example-input").addEventListener("click", async () => {
     disableInteraction();
     const example = EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)];
+    try {
+        // load depth first, then color image
+        const depthResponse = await fetch(EXAMPLES_BASE_URL + example.depthFile);
+        const depthBlob = await depthResponse.blob();
+        const depthObjectUrl = URL.createObjectURL(depthBlob);
+        const depthImage = await loadImageFromSource(depthObjectUrl);
+        URL.revokeObjectURL(depthObjectUrl);
 
-    // load in depth first, then trigger step 1
-    fetch(EXAMPLES_BASE_URL + example.depthFile)
-        .then((response) => response.blob())
-        .then((depthImage) => {
-            enableDepth();
-            // use an object url to get around possible bad browser caching race conditions
-            const depthImageURL = URL.createObjectURL(depthImage);
-            const depthReader = new FileReader();
-            depthReader.onload = function (event) {
-                inputDepthImage = new Image();
-                inputDepthImage.onload = function () {
-                    inputDepthCanvas.width = SERIALIZE_EDGE_LENGTH;
-                    inputDepthCanvas.height = SERIALIZE_EDGE_LENGTH;
-                    inputDepthCanvasContext.drawImage(
-                        inputDepthImage,
-                        0,
-                        0,
-                        inputDepthImage.width,
-                        inputDepthImage.height,
-                        0,
-                        0,
-                        SERIALIZE_EDGE_LENGTH,
-                        SERIALIZE_EDGE_LENGTH
-                    );
-                };
-                inputDepthImage.src = depthImageURL;
-                setTimeout(() => {
-                    fetch(EXAMPLES_BASE_URL + example.colorFile)
-                        .then((response) => response.blob())
-                        .then((colorImage) => {
-                            // use an object url to get around possible bad browser caching race conditions
-                            const colorImageURL = URL.createObjectURL(colorImage);
-                            const e = {
-                                target: {
-                                    files: [colorImage],
-                                },
-                            };
-                            handleInputImage(e, true, true);
-                        });
-                }, 50); // TODO: find better way to check that input is finished
-            };
-            depthReader.readAsDataURL(depthImage);
-        });
+        enableDepth();
+        inputDepthCanvas.width = SERIALIZE_EDGE_LENGTH;
+        inputDepthCanvas.height = SERIALIZE_EDGE_LENGTH;
+        inputDepthCanvasContext.drawImage(
+            depthImage,
+            0,
+            0,
+            depthImage.width,
+            depthImage.height,
+            0,
+            0,
+            SERIALIZE_EDGE_LENGTH,
+            SERIALIZE_EDGE_LENGTH
+        );
+
+        await waitForNextFrame();
+        const colorResponse = await fetch(EXAMPLES_BASE_URL + example.colorFile);
+        const colorBlob = await colorResponse.blob();
+        await handleInputImage(
+            {
+                target: {
+                    files: [colorBlob],
+                },
+            },
+            true,
+            true
+        );
+    } catch (err) {
+        console.error("Failed to load example input", err);
+        enableInteraction();
+    }
+
     perfLoggingDatabase.ref("trigger-random-example-input-count/total").transaction(incrementTransaction);
     const loggingTimestamp = Math.floor((Date.now() - (Date.now() % 8.64e7)) / 1000); // 8.64e+7 = ms in day
     perfLoggingDatabase
@@ -3006,37 +3024,36 @@ const imageURL =
     imageURLMatch.length > 0 ? imageURLMatch[0].replace(/image=(https?((:\/\/)|(%3A%2F%2F)))?/gi, "") : null;
 
 if (imageURL != null) {
-    setTimeout(() => {
-        fetch("https://" + decodeURIComponent(imageURL))
-            .then((response) => response.blob())
-            .then((colorImage) => {
-                try {
-                    // use an object url to get around possible bad browser caching race conditions
-                    const colorImageURL = URL.createObjectURL(colorImage);
-                    const e = {
-                        target: {
-                            files: [colorImage],
-                        },
-                    };
-                    handleInputImage(e, true, true);
-                } catch (e) {
-                    enableInteraction();
-                }
-            })
-            .catch((err) => {
-                enableInteraction();
-            });
-    }, 50); // TODO: find better way to check that input is finished
+    fetch("https://" + decodeURIComponent(imageURL))
+        .then((response) => response.blob())
+        .then((colorImage) =>
+            handleInputImage(
+                {
+                    target: {
+                        files: [colorImage],
+                    },
+                },
+                true,
+                true
+            )
+        )
+        .catch((_err) => {
+            enableInteraction();
+        });
 }
 
 const imageSelectorHidden = document.getElementById("input-image-selector-hidden");
-imageSelectorHidden.addEventListener("change", (e) => handleInputImage(e), false);
+imageSelectorHidden.addEventListener("change", (e) => {
+    void handleInputImage(e);
+}, false);
 document.getElementById("input-image-selector").addEventListener("click", () => {
     imageSelectorHidden.click();
 });
 
 const depthImageSelectorHidden = document.getElementById("input-depth-image-selector-hidden");
-depthImageSelectorHidden.addEventListener("change", handleInputDepthMapImage, false);
+depthImageSelectorHidden.addEventListener("change", (e) => {
+    void handleInputDepthMapImage(e);
+}, false);
 document.getElementById("input-depth-image-selector").addEventListener("click", () => {
     depthImageSelectorHidden.click();
 });
@@ -3058,5 +3075,15 @@ if (techTalkButton) {
         }
     });
 }
+
+window.AppBridge = {
+    getVersionNumber: () => VERSION_NUMBER,
+    getCustomStudTableBody: () => customStudTableBody,
+    getHexToColorNameMap: () => HEX_TO_COLOR_NAME,
+    getAllBricklinkSolidColors: () => ALL_BRICKLINK_SOLID_COLORS,
+    getNewCustomStudRow: () => getNewCustomStudRow(),
+    runCustomStudMap: () => runCustomStudMap(),
+    handleInputImage: (e, dontClearDepth, dontLog) => handleInputImage(e, dontClearDepth, dontLog),
+};
 
 enableInteraction(); // enable interaction once everything has loaded in

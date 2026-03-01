@@ -2,7 +2,7 @@ function getSortedStuds(studMap) {
     return Object.keys(studMap).sort();
 }
 
-STUD_MAPS = {
+const STUD_MAPS = {
     // rgb: {
     //     name: "RGB",
     //     officialName: "RGB Example",
@@ -419,3 +419,8 @@ STUD_MAPS["pick_a_brick"] = {
         'All colors in which studs are available on the <a href="https://www.lego.com/en-us/page/static/pick-a-brick" target="_blank">Lego.com pick a brick page</a>',
     studMap: pickABricStudkHexToCount,
 };
+
+window.getSortedStuds = getSortedStuds;
+window.STUD_MAPS = STUD_MAPS;
+
+export { getSortedStuds, STUD_MAPS };

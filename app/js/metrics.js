@@ -2,8 +2,11 @@ const TS_ROUND_GRANULARITY = 1000;
 
 try {
     if (window.location.href.match("metric")) {
-        perfLoggingDatabase = firebase.database();
-        perfLoggingDatabase
+        const metricsDatabase = window.firebase?.database?.();
+        if (!metricsDatabase) {
+            throw new Error("Firebase database is not available");
+        }
+        metricsDatabase
             .ref("/input-image-count/per-day")
             .once("value")
             .then((snapshot) => {
@@ -38,3 +41,5 @@ try {
 } catch (_e) {
     // we don't care if this fails
 }
+
+export {};

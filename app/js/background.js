@@ -60,6 +60,8 @@ function regenerateBackground() {
     document.body.style.backgroundImage = "url('" + dataURL + "')";
 }
 
+window.regenerateBackground = regenerateBackground;
+
 // Initialize on load
 regenerateBackground();
 
