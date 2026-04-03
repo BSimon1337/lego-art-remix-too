@@ -190,22 +190,49 @@ document.getElementById("height-text").title = `${(targetResolution[1] * PIXEL_W
 ).toFixed(1)}″`;
 
 let inputImageCropper;
+let cropperInitializationToken = 0;
+let cropperReadyPromise = Promise.resolve(0);
+let activePipelineRunToken = 0;
+
+function beginPipelineRun() {
+    activePipelineRunToken += 1;
+    return activePipelineRunToken;
+}
+
+function isPipelineRunActive(runToken) {
+    return runToken === activePipelineRunToken;
+}
 
 function initializeCropper() {
+    const initializationToken = ++cropperInitializationToken;
     if (inputImageCropper != null) {
         inputImageCropper.destroy();
     }
-    inputImageCropper = new Cropper(step1CanvasUpscaled, {
-        aspectRatio: targetResolution[0] / targetResolution[1],
-        viewMode: 3,
-        minContainerWidth: 1,
-        minContainerHeight: 1,
-        cropend() {
-            overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
-            overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
-            clearUndoHistory();
-        },
+    cropperReadyPromise = new Promise((resolve) => {
+        inputImageCropper = new Cropper(step1CanvasUpscaled, {
+            aspectRatio: targetResolution[0] / targetResolution[1],
+            viewMode: 3,
+            minContainerWidth: 1,
+            minContainerHeight: 1,
+            ready() {
+                resolve(initializationToken);
+            },
+            cropend() {
+                overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
+                overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
+                clearUndoHistory();
+            },
+        });
     });
+    return cropperReadyPromise;
+}
+
+async function runStep1WhenCropperReady() {
+    const readyToken = await cropperReadyPromise;
+    if (readyToken !== cropperInitializationToken || inputImageCropper == null) {
+        return;
+    }
+    runStep1();
 }
 
 step1CanvasUpscaled.addEventListener("cropend", runStep1);
@@ -420,7 +447,7 @@ function handleResolutionChange() {
     $('[data-toggle="tooltip"]').tooltip("dispose");
     $('[data-toggle="tooltip"]').tooltip();
     initializeCropper();
-    runStep1();
+    void runStep1WhenCropperReady();
 }
 
 document.getElementById("width-slider").addEventListener(
@@ -1194,7 +1221,10 @@ document.getElementById("reset-contrast-button").addEventListener(
     false
 );
 
-function runStep1() {
+function runStep1(runToken = beginPipelineRun()) {
+    if (!isPipelineRunActive(runToken)) {
+        return;
+    }
     disableInteraction();
     setLoadingMessage("Preparing stud map...");
     updateStudCountText();
@@ -1226,12 +1256,25 @@ function runStep1() {
         step1CanvasUpscaled.height
     );
     void (async () => {
-        await waitForNextFrame();
-        runStep2();
+        try {
+            await waitForNextFrame();
+            if (!isPipelineRunActive(runToken)) {
+                return;
+            }
+            runStep2(runToken);
+        } catch (err) {
+            console.error("Step 1 processing failed", err);
+            if (isPipelineRunActive(runToken)) {
+                enableInteraction();
+            }
+        }
     })();
 }
 
-function runStep2() {
+function runStep2(runToken = beginPipelineRun()) {
+    if (!isPipelineRunActive(runToken)) {
+        return;
+    }
     setLoadingMessage("Resizing and filtering image...");
     let inputPixelArray;
     if (selectedInterpolationAlgorithm === "default") {
@@ -1326,7 +1369,13 @@ function runStep2() {
 
     void (async () => {
         await waitForNextFrame();
-        runStep3();
+        if (!isPipelineRunActive(runToken)) {
+            return;
+        }
+        runStep3(runToken);
+        if (!isPipelineRunActive(runToken)) {
+            return;
+        }
         step2CanvasUpscaled.width = targetResolution[0] * SCALING_FACTOR;
         step2CanvasUpscaled.height = targetResolution[1] * SCALING_FACTOR;
         step2CanvasUpscaledContext.imageSmoothingEnabled = false;
@@ -1377,7 +1426,10 @@ function getVariablePixelAvailablePartDimensions() {
 // only non null if pixel piece is variable
 let step3VariablePixelPieceDimensions = null;
 
-function runStep3() {
+function runStep3(runToken = beginPipelineRun()) {
+    if (!isPipelineRunActive(runToken)) {
+        return;
+    }
     setLoadingMessage("Quantizing colors...");
     const fiteredPixelArray = getPixelArrayFromCanvas(step2Canvas);
 
@@ -1489,10 +1541,16 @@ function runStep3() {
 
     void (async () => {
         await waitForNextFrame();
+        if (!isPipelineRunActive(runToken)) {
+            return;
+        }
         if (!isStep3ViewExpanded) {
-            runStep4();
+            runStep4(runToken);
         } else {
             enableInteraction();
+        }
+        if (!isPipelineRunActive(runToken)) {
+            return;
         }
         step3CanvasUpscaledContext.imageSmoothingEnabled = false;
         drawStudImageOnCanvas(
@@ -2110,7 +2168,14 @@ step4Canvas3dUpscaled.addEventListener("mouseleave", function (e) {
 
 document.getElementById("3d-effect-intensity").addEventListener("change", create3dPreview, false);
 
-function runStep4(asyncCallback) {
+function runStep4(runToken = beginPipelineRun(), asyncCallback) {
+    if (typeof runToken === "function") {
+        asyncCallback = runToken;
+        runToken = beginPipelineRun();
+    }
+    if (!isPipelineRunActive(runToken)) {
+        return;
+    }
     setLoadingMessage("Building output and part counts...");
     const step2PixelArray = getPixelArrayFromCanvas(step2Canvas);
     const step3PixelArray = getPixelArrayFromCanvas(step3Canvas);
@@ -2198,6 +2263,9 @@ function runStep4(asyncCallback) {
 
         void (async () => {
             await waitForNextFrame();
+            if (!isPipelineRunActive(runToken)) {
+                return;
+            }
             step4CanvasUpscaledContext.imageSmoothingEnabled = false;
             const pixelsToDraw = isBleedthroughEnabled()
                 ? revertDarkenedImage(
@@ -2348,15 +2416,23 @@ function runStep4(asyncCallback) {
 
             if (document.getElementById("step-4-depth-tab").className.includes("active")) {
                 await waitForNextFrame();
+                if (!isPipelineRunActive(runToken)) {
+                    return;
+                }
                 create3dPreview();
             }
             if (asyncCallback) {
                 await asyncCallback();
+                if (!isPipelineRunActive(runToken)) {
+                    return;
+                }
             }
             enableInteraction();
         })();
     } catch (_e) {
-        enableInteraction();
+        if (isPipelineRunActive(runToken)) {
+            enableInteraction();
+        }
     }
 }
 
@@ -2917,7 +2993,7 @@ async function handleInputImage(e, dontClearDepth, dontLog) {
         overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
         overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
         initializeCropper();
-        runStep1();
+        await runStep1WhenCropperReady();
 
         if (!dontLog) {
             perfLoggingDatabase.ref("input-image-count/total").transaction(incrementTransaction);

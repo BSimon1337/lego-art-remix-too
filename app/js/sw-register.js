@@ -1,5 +1,7 @@
 // Service worker registration with update notification
-if ("serviceWorker" in navigator && !window.location.href.match(/disableServiceWorker/gi)) {
+const isLocalDevHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+
+if ("serviceWorker" in navigator && !isLocalDevHost && !window.location.href.match(/disableServiceWorker/gi)) {
     navigator.serviceWorker
         .register("service-worker.js")
         .then(function (registration) {
