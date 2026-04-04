@@ -1,8 +1,37 @@
 const TS_ROUND_GRANULARITY = 1000;
+const DAY_ROUND_MS = 8.64e7;
+
+function getMetricsDatabase() {
+    return window.firebase?.database?.() || null;
+}
+
+function recordRecommendationMetric(eventName, metadata = {}) {
+    const metricsDatabase = getMetricsDatabase();
+    if (!metricsDatabase) {
+        return;
+    }
+    const safeName = String(eventName || "unknown").replace(/[^a-z0-9_-]/gi, "_");
+    const loggingTimestamp = Math.floor((Date.now() - (Date.now() % DAY_ROUND_MS)) / 1000);
+    try {
+        metricsDatabase.ref(`/recommendation-events/${safeName}/total`).transaction((count) => (count || 0) + 1);
+        metricsDatabase
+            .ref(`/recommendation-events/${safeName}/per-day/${loggingTimestamp}`)
+            .transaction((count) => (count || 0) + 1);
+        if (Object.keys(metadata).length > 0) {
+            metricsDatabase.ref(`/recommendation-events/${safeName}/last-metadata`).set(metadata);
+        }
+    } catch (_e) {
+        // fail silently for optional metrics
+    }
+}
+
+window.LARMetrics = {
+    recordRecommendationMetric,
+};
 
 try {
     if (window.location.href.match("metric")) {
-        const metricsDatabase = window.firebase?.database?.();
+        const metricsDatabase = getMetricsDatabase();
         if (!metricsDatabase) {
             throw new Error("Firebase database is not available");
         }

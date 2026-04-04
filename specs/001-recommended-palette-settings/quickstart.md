@@ -10,6 +10,13 @@ Validate the recommendation workflow end-to-end in the existing browser app.
 - Local app runs via existing dev script
 - Test image file available
 
+## Phase 1 Setup Checkpoints
+
+- Recommendation panel scaffold is visible in the app shell.
+- Recommendation action buttons are present but disabled before image context is ready.
+- Placeholder recommendation list area is present for future option rendering.
+- Initialization guard runs once at startup without affecting current manual workflow.
+
 ## Steps
 
 1. Start the app with `npm run dev`.

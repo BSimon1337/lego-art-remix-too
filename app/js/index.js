@@ -178,6 +178,318 @@ const INCHES_IN_CM = 0.393701;
 const SCALING_FACTOR = 40;
 const PLATE_WIDTH = 16;
 
+const RECOMMENDATION_GOALS = Object.freeze([
+    "balanced_quality",
+    "lower_piece_count",
+    "stronger_detail",
+]);
+
+const recommendationElements = {
+    panel: document.getElementById("recommendation-panel-card"),
+    statusText: document.getElementById("recommendation-status-text"),
+    generateButton: document.getElementById("generate-recommendations-button"),
+    applyButton: document.getElementById("apply-recommendation-button"),
+    summary: document.getElementById("recommendation-summary"),
+    summaryText: document.getElementById("recommendation-summary-text"),
+    optionsContainer: document.getElementById("recommendation-options-container"),
+};
+
+const recommendationState = {
+    initialized: false,
+    snapshotId: null,
+    selectedOptionId: null,
+    goals: RECOMMENDATION_GOALS,
+    options: [],
+    activeProfile: null,
+    errorCode: null,
+    cropBounds: null,
+    targetDimensions: null,
+};
+
+const RECOMMENDATION_ERROR_MESSAGES = {
+    NO_VALID_IMAGE_CONTEXT: "Upload and crop an image before generating recommendations.",
+    PREPROCESSING_INCOMPLETE: "Please wait for image preprocessing to complete.",
+    NO_SUITABLE_RECOMMENDATION: "No suitable recommendation could be generated for the current constraints.",
+    STALE_SNAPSHOT: "Recommendations are outdated. Regenerate after changing crop or dimensions.",
+};
+
+function initializeRecommendationPanelScaffold() {
+    if (recommendationState.initialized) {
+        return;
+    }
+    const { panel, statusText, generateButton, applyButton, summary, summaryText, optionsContainer } = recommendationElements;
+    if (!panel || !statusText || !generateButton || !applyButton || !summary || !summaryText || !optionsContainer) {
+        return;
+    }
+
+    panel.hidden = false;
+    statusText.textContent = "Upload and crop an image to unlock recommendations.";
+    generateButton.disabled = true;
+    applyButton.disabled = true;
+    summary.hidden = true;
+    summaryText.textContent = "";
+    optionsContainer.innerHTML = "";
+
+    recommendationState.snapshotId = null;
+    recommendationState.selectedOptionId = null;
+    recommendationState.options = [];
+    recommendationState.activeProfile = null;
+    recommendationState.errorCode = null;
+    recommendationState.cropBounds = null;
+    recommendationState.targetDimensions = null;
+    recommendationState.initialized = true;
+}
+
+function recordRecommendationTelemetry(eventName, metadata) {
+    if (window.LARMetrics && typeof window.LARMetrics.recordRecommendationMetric === "function") {
+        window.LARMetrics.recordRecommendationMetric(eventName, metadata);
+    }
+}
+
+function setRecommendationStatus(statusMessage, errorCode = null) {
+    if (!recommendationState.initialized || !recommendationElements.statusText) {
+        return;
+    }
+    recommendationState.errorCode = errorCode;
+    recommendationElements.statusText.textContent = statusMessage;
+}
+
+function getRecommendationErrorMessage(errorCode) {
+    return RECOMMENDATION_ERROR_MESSAGES[errorCode] || "Recommendation flow encountered an unexpected issue.";
+}
+
+function getCurrentRecommendationInputContext() {
+    const cropData = inputImageCropper && typeof inputImageCropper.getData === "function" ? inputImageCropper.getData(true) : null;
+    return {
+        sourceImageId: inputImage ? "active-input-image" : null,
+        cropBounds: cropData
+            ? {
+                x: Math.round(cropData.x),
+                y: Math.round(cropData.y),
+                width: Math.round(cropData.width),
+                height: Math.round(cropData.height),
+            }
+            : null,
+        targetDimensions: {
+            width: Number(targetResolution[0]),
+            height: Number(targetResolution[1]),
+        },
+    };
+}
+
+function getImageAnalysisSnapshotMetrics() {
+    if (!inputCanvas || inputCanvas.width === 0 || inputCanvas.height === 0) {
+        return { colorComplexityScore: 0, contrastScore: 0 };
+    }
+    const pixels = getPixelArrayFromCanvas(inputCanvas);
+    let brightnessSum = 0;
+    let brightnessSqSum = 0;
+    const stride = Math.max(4, Math.floor(pixels.length / (4 * 5000)) * 4);
+    let sampleCount = 0;
+    for (let i = 0; i < pixels.length; i += stride) {
+        const brightness = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
+        brightnessSum += brightness;
+        brightnessSqSum += brightness * brightness;
+        sampleCount++;
+    }
+    const avg = sampleCount > 0 ? brightnessSum / sampleCount : 0;
+    const variance = sampleCount > 0 ? Math.max(brightnessSqSum / sampleCount - avg * avg, 0) : 0;
+    const contrastScore = Math.min(Math.sqrt(variance) / 128, 1);
+    const colorComplexityScore = Math.min((contrastScore * 0.75) + 0.2, 1);
+    return {
+        colorComplexityScore,
+        contrastScore,
+    };
+}
+
+function createImageAnalysisSnapshot(context) {
+    const snapshotId = `snapshot-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const metrics = getImageAnalysisSnapshotMetrics();
+    return {
+        snapshotId,
+        sourceImageId: context.sourceImageId,
+        cropBounds: context.cropBounds,
+        targetDimensions: context.targetDimensions,
+        colorComplexityScore: metrics.colorComplexityScore,
+        contrastScore: metrics.contrastScore,
+        generatedAt: new Date().toISOString(),
+    };
+}
+
+function isRecommendationSnapshotStale(snapshot, context) {
+    if (!snapshot || !context || !context.cropBounds) {
+        return true;
+    }
+    const staleWidth = snapshot.targetDimensions?.width !== context.targetDimensions?.width;
+    const staleHeight = snapshot.targetDimensions?.height !== context.targetDimensions?.height;
+    const staleCrop =
+        snapshot.cropBounds?.x !== context.cropBounds?.x ||
+        snapshot.cropBounds?.y !== context.cropBounds?.y ||
+        snapshot.cropBounds?.width !== context.cropBounds?.width ||
+        snapshot.cropBounds?.height !== context.cropBounds?.height;
+    return staleWidth || staleHeight || staleCrop;
+}
+
+function buildRecommendationGenerateRequestPayload(context) {
+    return {
+        sourceImageId: context.sourceImageId,
+        cropBounds: context.cropBounds,
+        targetDimensions: context.targetDimensions,
+        activeConstraints: {
+            infinitePieceCount: Boolean(document.getElementById("infinite-piece-count-check")?.checked),
+            selectedStudMap: document.getElementById("select-starting-custom-stud-map-button")?.textContent || null,
+        },
+    };
+}
+
+function buildRecommendationsReadyPayload(snapshot, options) {
+    return {
+        snapshotId: snapshot.snapshotId,
+        options,
+        generatedAt: snapshot.generatedAt,
+    };
+}
+
+function buildRecommendationApplyPayload(option) {
+    return {
+        appliedOptionId: option.optionId,
+        activeProfile: {
+            profileId: `profile-${Date.now()}`,
+            name: `Recommended: ${option.summary?.label || option.goal}`,
+            paletteId: option.paletteId,
+            pictureSettings: option.pictureSettings,
+            sourceGoal: option.goal,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            ownerRef: "current-session",
+        },
+        previewRefreshRequired: true,
+    };
+}
+
+function renderRecommendationOptions(options) {
+    if (!recommendationElements.optionsContainer) {
+        return;
+    }
+    recommendationElements.optionsContainer.innerHTML = "";
+    options.forEach((option, idx) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = `recommendation-option-placeholder btn btn-light text-left ${idx === 0 ? "border-info" : ""}`;
+        item.dataset.optionId = option.optionId;
+        item.innerHTML = `<div><strong>${option.summary?.label || option.goal}</strong></div><small>${option.summary?.tradeoff || ""}</small>`;
+        item.addEventListener("click", () => {
+            recommendationState.selectedOptionId = option.optionId;
+            [...recommendationElements.optionsContainer.querySelectorAll("button")].forEach((btn) =>
+                btn.classList.remove("border-info")
+            );
+            item.classList.add("border-info");
+            recommendationElements.applyButton.disabled = false;
+        });
+        recommendationElements.optionsContainer.appendChild(item);
+    });
+}
+
+function invalidateRecommendationSnapshot(reasonCode = "STALE_SNAPSHOT") {
+    recommendationState.snapshotId = null;
+    recommendationState.selectedOptionId = null;
+    recommendationState.options = [];
+    recommendationState.cropBounds = null;
+    recommendationState.targetDimensions = null;
+    recommendationElements.applyButton.disabled = true;
+    recommendationElements.summary.hidden = true;
+    recommendationElements.summaryText.textContent = "";
+    recommendationElements.optionsContainer.innerHTML = "";
+    setRecommendationStatus(getRecommendationErrorMessage(reasonCode), reasonCode);
+}
+
+function updateRecommendationAvailability() {
+    if (!recommendationState.initialized) {
+        return;
+    }
+    const hasImageContext = Boolean(inputImage && inputCanvas.width > 0 && inputCanvas.height > 0);
+    recommendationElements.generateButton.disabled = !hasImageContext;
+    if (!hasImageContext) {
+        recommendationElements.applyButton.disabled = true;
+    }
+}
+
+function handleGenerateRecommendationsClick() {
+    const context = getCurrentRecommendationInputContext();
+    if (!context.sourceImageId || !context.cropBounds) {
+        const errorCode = "NO_VALID_IMAGE_CONTEXT";
+        setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
+        recordRecommendationTelemetry("recommendation_generate_failed", { errorCode });
+        return;
+    }
+    const requestPayload = buildRecommendationGenerateRequestPayload(context);
+    const snapshot = createImageAnalysisSnapshot(context);
+    const algo = window.LARRecommendationAlgo;
+    const options =
+        algo && typeof algo.generateRecommendationOptions === "function"
+            ? algo.generateRecommendationOptions(snapshot, requestPayload.activeConstraints?.selectedStudMap || "current-selection")
+            : [];
+    if (!options || options.length === 0) {
+        const errorCode = "NO_SUITABLE_RECOMMENDATION";
+        setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
+        recordRecommendationTelemetry("recommendation_generate_failed", { errorCode });
+        return;
+    }
+    const readyPayload = buildRecommendationsReadyPayload(snapshot, options);
+    recommendationState.snapshotId = readyPayload.snapshotId;
+    recommendationState.options = readyPayload.options;
+    recommendationState.selectedOptionId = readyPayload.options[0].optionId;
+    recommendationState.cropBounds = snapshot.cropBounds;
+    recommendationState.targetDimensions = snapshot.targetDimensions;
+    renderRecommendationOptions(readyPayload.options);
+    recommendationElements.applyButton.disabled = false;
+    recommendationElements.summary.hidden = false;
+    recommendationElements.summaryText.textContent = `Generated ${readyPayload.options.length} recommendation options.`;
+    setRecommendationStatus("Recommendations ready. Select an option to apply.");
+    recordRecommendationTelemetry("recommendation_generate_success", {
+        snapshotId: readyPayload.snapshotId,
+        optionCount: readyPayload.options.length,
+    });
+}
+
+function handleApplyRecommendationClick() {
+    const context = getCurrentRecommendationInputContext();
+    if (isRecommendationSnapshotStale(recommendationState, context)) {
+        const errorCode = "STALE_SNAPSHOT";
+        setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
+        recordRecommendationTelemetry("recommendation_apply_failed", { errorCode });
+        return;
+    }
+    const selectedOption = recommendationState.options.find((option) => option.optionId === recommendationState.selectedOptionId);
+    if (!selectedOption) {
+        const errorCode = "NO_SUITABLE_RECOMMENDATION";
+        setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
+        recordRecommendationTelemetry("recommendation_apply_failed", { errorCode });
+        return;
+    }
+    const applyPayload = buildRecommendationApplyPayload(selectedOption);
+    recommendationState.activeProfile = applyPayload.activeProfile;
+    const storage = window.LARRecommendationStorage;
+    if (storage && typeof storage.saveRecommendationProfile === "function") {
+        try {
+            storage.saveRecommendationProfile(applyPayload.activeProfile);
+        } catch (_e) {
+            // persistence failure should not block apply behavior
+        }
+    }
+    recommendationElements.summary.hidden = false;
+    recommendationElements.summaryText.textContent = `Applied "${selectedOption.summary?.label || selectedOption.goal}" to current configuration.`;
+    setRecommendationStatus("Recommendation applied. You can continue with manual adjustments.");
+    recordRecommendationTelemetry("recommendation_apply_success", {
+        appliedOptionId: applyPayload.appliedOptionId,
+    });
+}
+
+function bindRecommendationPanelEvents() {
+    recommendationElements.generateButton?.addEventListener("click", handleGenerateRecommendationsClick);
+    recommendationElements.applyButton?.addEventListener("click", handleApplyRecommendationClick);
+}
+
 document.getElementById("width-text").title = `${(targetResolution[0] * PIXEL_WIDTH_CM).toFixed(1)} cm, ${(
     targetResolution[0] *
     PIXEL_WIDTH_CM *
@@ -221,6 +533,7 @@ function initializeCropper() {
                 overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
                 overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
                 clearUndoHistory();
+                invalidateRecommendationSnapshot("STALE_SNAPSHOT");
             },
         });
     });
@@ -434,6 +747,7 @@ function handleResolutionChange() {
     overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
     overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
     clearUndoHistory();
+    invalidateRecommendationSnapshot("STALE_SNAPSHOT");
     document.getElementById("width-text").title = `${(targetResolution[0] * PIXEL_WIDTH_CM).toFixed(1)} cm, ${(
         targetResolution[0] *
         PIXEL_WIDTH_CM *
@@ -448,6 +762,7 @@ function handleResolutionChange() {
     $('[data-toggle="tooltip"]').tooltip();
     initializeCropper();
     void runStep1WhenCropperReady();
+    updateRecommendationAvailability();
 }
 
 document.getElementById("width-slider").addEventListener(
@@ -2938,6 +3253,7 @@ async function handleInputImage(e, dontClearDepth, dontLog) {
     if (!file) return;
 
     try {
+        invalidateRecommendationSnapshot("PREPROCESSING_INCOMPLETE");
         const imageSource = await readFileAsDataURL(file);
         inputImage = await loadImageFromSource(imageSource);
 
@@ -2994,6 +3310,8 @@ async function handleInputImage(e, dontClearDepth, dontLog) {
         overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
         initializeCropper();
         await runStep1WhenCropperReady();
+        updateRecommendationAvailability();
+        setRecommendationStatus("Image ready. Generate recommendations when you are ready.");
 
         if (!dontLog) {
             perfLoggingDatabase.ref("input-image-count/total").transaction(incrementTransaction);
@@ -3002,6 +3320,7 @@ async function handleInputImage(e, dontClearDepth, dontLog) {
         }
     } catch (err) {
         console.error("Input image processing failed", err);
+        setRecommendationStatus(getRecommendationErrorMessage("NO_VALID_IMAGE_CONTEXT"), "NO_VALID_IMAGE_CONTEXT");
         enableInteraction();
     }
 }
@@ -3160,6 +3479,10 @@ window.AppBridge = {
     getNewCustomStudRow: () => getNewCustomStudRow(),
     runCustomStudMap: () => runCustomStudMap(),
     handleInputImage: (e, dontClearDepth, dontLog) => handleInputImage(e, dontClearDepth, dontLog),
+    getRecommendationProfileState: () => recommendationState.activeProfile,
 };
 
+initializeRecommendationPanelScaffold();
+bindRecommendationPanelEvents();
+updateRecommendationAvailability();
 enableInteraction(); // enable interaction once everything has loaded in

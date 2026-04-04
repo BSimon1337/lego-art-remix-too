@@ -22,10 +22,10 @@
 
 **Purpose**: Prepare UI placeholders and feature-scoped scaffolding without changing user-visible behavior yet.
 
-- [ ] T001 Add recommendation panel placeholders and action controls in app/index.html
-- [ ] T002 [P] Add recommendation panel layout and responsive Bootstrap-aligned styling in app/css/styles.css
-- [ ] T003 [P] Add feature notes for recommendation workflow checkpoints in specs/001-recommended-palette-settings/quickstart.md
-- [ ] T004 Create feature constants and initialization guards for recommendations in app/js/index.js
+- [X] T001 Add recommendation panel placeholders and action controls in app/index.html
+- [X] T002 [P] Add recommendation panel layout and responsive Bootstrap-aligned styling in app/css/styles.css
+- [X] T003 [P] Add feature notes for recommendation workflow checkpoints in specs/001-recommended-palette-settings/quickstart.md
+- [X] T004 Create feature constants and initialization guards for recommendations in app/js/index.js
 
 ---
 
@@ -35,12 +35,12 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T005 Implement ImageAnalysisSnapshot creation and stale-detection helpers in app/js/index.js
-- [ ] T006 [P] Implement RecommendationOption generation helpers and scoring goals in app/js/algo.js
-- [ ] T007 [P] Implement RecommendationProfile serialization/deserialization helpers in app/js/ux-sharing.js
-- [ ] T008 Wire recommendation contract payload assembly to match specs/001-recommended-palette-settings/contracts/recommendation-ui-contract.md in app/js/index.js
-- [ ] T009 Add recommendation error-state mapping (`NO_VALID_IMAGE_CONTEXT`, `PREPROCESSING_INCOMPLETE`, `NO_SUITABLE_RECOMMENDATION`, `STALE_SNAPSHOT`) in app/js/index.js
-- [ ] T010 Add recommendation telemetry events for generate/apply/fallback outcomes in app/js/metrics.js
+- [X] T005 Implement ImageAnalysisSnapshot creation and stale-detection helpers in app/js/index.js
+- [X] T006 [P] Implement RecommendationOption generation helpers and scoring goals in app/js/algo.js
+- [X] T007 [P] Implement RecommendationProfile serialization/deserialization helpers in app/js/ux-sharing.js
+- [X] T008 Wire recommendation contract payload assembly to match specs/001-recommended-palette-settings/contracts/recommendation-ui-contract.md in app/js/index.js
+- [X] T009 Add recommendation error-state mapping (`NO_VALID_IMAGE_CONTEXT`, `PREPROCESSING_INCOMPLETE`, `NO_SUITABLE_RECOMMENDATION`, `STALE_SNAPSHOT`) in app/js/index.js
+- [X] T010 Add recommendation telemetry events for generate/apply/fallback outcomes in app/js/metrics.js
 
 **Checkpoint**: Foundation ready; user story implementation can proceed independently.
 

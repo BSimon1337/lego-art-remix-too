@@ -696,6 +696,66 @@
         runNext(0);
     }
 
+    const RECOMMENDATION_PROFILE_STORAGE_KEY = 'lar_recommendation_profiles';
+
+    function getStoredRecommendationProfiles() {
+        try {
+            return JSON.parse(localStorage.getItem(RECOMMENDATION_PROFILE_STORAGE_KEY) || '[]');
+        } catch (_e) {
+            return [];
+        }
+    }
+
+    function serializeRecommendationProfile(profile) {
+        if (!profile || !profile.profileId || !profile.paletteId || !profile.pictureSettings) {
+            throw new Error('Invalid recommendation profile payload');
+        }
+        const normalized = {
+            profileId: String(profile.profileId),
+            name: String(profile.name || 'Untitled Recommendation').slice(0, 80),
+            paletteId: String(profile.paletteId),
+            pictureSettings: profile.pictureSettings,
+            sourceGoal: profile.sourceGoal || null,
+            createdAt: profile.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            ownerRef: profile.ownerRef || null,
+        };
+        return JSON.stringify(normalized);
+    }
+
+    function deserializeRecommendationProfile(serializedProfile) {
+        const parsed = typeof serializedProfile === 'string' ? JSON.parse(serializedProfile) : serializedProfile;
+        if (!parsed || !parsed.profileId || !parsed.paletteId || !parsed.pictureSettings) {
+            throw new Error('Malformed recommendation profile');
+        }
+        return {
+            profileId: String(parsed.profileId),
+            name: String(parsed.name || 'Untitled Recommendation').slice(0, 80),
+            paletteId: String(parsed.paletteId),
+            pictureSettings: parsed.pictureSettings,
+            sourceGoal: parsed.sourceGoal || null,
+            createdAt: parsed.createdAt || new Date().toISOString(),
+            updatedAt: parsed.updatedAt || new Date().toISOString(),
+            ownerRef: parsed.ownerRef || null,
+        };
+    }
+
+    function saveRecommendationProfile(profile) {
+        const serialized = serializeRecommendationProfile(profile);
+        const normalized = deserializeRecommendationProfile(serialized);
+        const profiles = getStoredRecommendationProfiles().filter((p) => p.profileId !== normalized.profileId);
+        profiles.unshift(normalized);
+        localStorage.setItem(RECOMMENDATION_PROFILE_STORAGE_KEY, JSON.stringify(profiles.slice(0, 50)));
+        return normalized;
+    }
+
+    window.LARRecommendationStorage = {
+        serializeRecommendationProfile,
+        deserializeRecommendationProfile,
+        saveRecommendationProfile,
+        getStoredRecommendationProfiles,
+    };
+
     // initialize: wire buttons
     function init() {
         // load from hash if present

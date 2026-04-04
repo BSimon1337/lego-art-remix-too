@@ -230,6 +230,31 @@ h1, h2, h3, h4, h5 {
   padding: 8px;
 }
 
+/* ===== Recommendation Panel ===== */
+.recommendation-panel {
+  margin-top: 10px;
+}
+
+.recommendation-actions {
+  display: inline-flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.recommendation-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.recommendation-option-placeholder {
+  border: 1px dashed var(--slate-300);
+  border-radius: 6px;
+  padding: 8px;
+  color: var(--slate-600);
+  background: var(--slate-50);
+}
+
 /* ===== Step Headers ===== */
 h4 {
   line-height: 24px;

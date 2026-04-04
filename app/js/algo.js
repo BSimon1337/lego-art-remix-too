@@ -1830,3 +1830,77 @@ function getVariablePixelWantedListXML(pixelColorMatrix, variablePixelPieceDimen
     \n${items.join("\n")}\n
   </INVENTORY>`;
 }
+
+const RECOMMENDATION_GOAL_WEIGHTS = {
+    balanced_quality: { complexity: 0.45, contrast: 0.35, paletteSpan: 0.2 },
+    lower_piece_count: { complexity: 0.2, contrast: 0.2, paletteSpan: 0.6 },
+    stronger_detail: { complexity: 0.5, contrast: 0.4, paletteSpan: 0.1 },
+};
+
+function clamp01(input) {
+    return Math.max(0, Math.min(1, input));
+}
+
+function scoreRecommendationGoal(goal, snapshotMetrics) {
+    const weights = RECOMMENDATION_GOAL_WEIGHTS[goal] || RECOMMENDATION_GOAL_WEIGHTS.balanced_quality;
+    const complexity = clamp01(snapshotMetrics?.colorComplexityScore ?? 0.5);
+    const contrast = clamp01(snapshotMetrics?.contrastScore ?? 0.5);
+    const paletteSpan = clamp01(1 - Math.abs(complexity - contrast));
+    return clamp01(
+        complexity * weights.complexity + contrast * weights.contrast + paletteSpan * weights.paletteSpan
+    );
+}
+
+function getRecommendedPictureSettings(goal, snapshotMetrics) {
+    const complexity = clamp01(snapshotMetrics?.colorComplexityScore ?? 0.5);
+    const contrast = clamp01(snapshotMetrics?.contrastScore ?? 0.5);
+    if (goal === "lower_piece_count") {
+        return {
+            quantization: "2 Phase",
+            detailBias: clamp01(0.35 + complexity * 0.3),
+            smoothingBias: clamp01(0.65 - contrast * 0.25),
+        };
+    }
+    if (goal === "stronger_detail") {
+        return {
+            quantization: "Floyd-Steinberg Dithering",
+            detailBias: clamp01(0.6 + complexity * 0.35),
+            smoothingBias: clamp01(0.35 - contrast * 0.1),
+        };
+    }
+    return {
+        quantization: "2 Phase",
+        detailBias: clamp01(0.5 + complexity * 0.2),
+        smoothingBias: clamp01(0.45 - contrast * 0.1),
+    };
+}
+
+function createRecommendationOptionFromGoal(goal, paletteId, snapshotMetrics, snapshotId) {
+    return {
+        optionId: `${goal}-${uuidv4()}`,
+        goal,
+        paletteId,
+        pictureSettings: getRecommendedPictureSettings(goal, snapshotMetrics),
+        summary: {
+            label: goal.replace(/_/g, " "),
+            tradeoff: goal === "lower_piece_count" ? "Lower complexity and fewer unique pieces." : goal === "stronger_detail" ? "Higher visual detail with denser variation." : "Balanced output quality and build simplicity.",
+        },
+        confidence: scoreRecommendationGoal(goal, snapshotMetrics),
+        snapshotId,
+    };
+}
+
+function generateRecommendationOptions(snapshot, paletteId = "current-selection") {
+    const goals = Object.keys(RECOMMENDATION_GOAL_WEIGHTS);
+    return goals.map((goal) =>
+        createRecommendationOptionFromGoal(goal, paletteId, {
+            colorComplexityScore: snapshot?.colorComplexityScore,
+            contrastScore: snapshot?.contrastScore,
+        }, snapshot?.snapshotId)
+    );
+}
+
+window.LARRecommendationAlgo = {
+    generateRecommendationOptions,
+    scoreRecommendationGoal,
+};
