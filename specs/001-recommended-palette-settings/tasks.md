@@ -107,11 +107,11 @@
 
 **Purpose**: Final consistency, validation, and documentation updates across stories.
 
-- [ ] T029 [P] Update recommendation UX copy and error/help text consistency in app/index.html
-- [ ] T030 [P] Tighten recommendation panel spacing/accessibility states in app/css/styles.css
-- [ ] T031 Validate stale snapshot regeneration behavior on crop/dimension change in app/js/index.js
-- [ ] T032 Run and record applicable quality gates in specs/001-recommended-palette-settings/quickstart.md using commands from package.json
-- [ ] T033 Confirm no dependency changes were introduced and document policy compliance in specs/001-recommended-palette-settings/plan.md
+- [X] T029 [P] Update recommendation UX copy and error/help text consistency in app/index.html
+- [X] T030 [P] Tighten recommendation panel spacing/accessibility states in app/css/styles.css
+- [X] T031 Validate stale snapshot regeneration behavior on crop/dimension change in app/js/index.js
+- [X] T032 Run and record applicable quality gates in specs/001-recommended-palette-settings/quickstart.md using commands from package.json
+- [X] T033 Confirm no dependency changes were introduced and document policy compliance in specs/001-recommended-palette-settings/plan.md
 
 ---
 

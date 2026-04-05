@@ -226,7 +226,7 @@ const RECOMMENDATION_ERROR_MESSAGES = {
     NO_VALID_IMAGE_CONTEXT: "Upload and crop an image before generating recommendations.",
     PREPROCESSING_INCOMPLETE: "Please wait for image preprocessing to complete.",
     NO_SUITABLE_RECOMMENDATION: "No suitable recommendation could be generated for the current constraints.",
-    STALE_SNAPSHOT: "Recommendations are outdated. Regenerate after changing crop or dimensions.",
+    STALE_SNAPSHOT: "Recommendations became stale after crop or dimension changes. Regenerating now.",
 };
 
 function initializeRecommendationPanelScaffold() {
@@ -591,6 +591,11 @@ function invalidateRecommendationSnapshot(reasonCode = "STALE_SNAPSHOT") {
     setRecommendationStatus(getRecommendationErrorMessage(reasonCode), reasonCode);
 }
 
+function invalidateAndRegenerateRecommendationsAfterContextChange(reasonCode = "STALE_SNAPSHOT") {
+    invalidateRecommendationSnapshot(reasonCode);
+    triggerStarterRecommendationForCurrentContext();
+}
+
 function updateRecommendationAvailability() {
     if (!recommendationState.initialized) {
         return;
@@ -756,6 +761,7 @@ function handleApplyRecommendationClick() {
         const errorCode = "STALE_SNAPSHOT";
         setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
         recordRecommendationTelemetry("recommendation_apply_failed", { errorCode });
+        triggerStarterRecommendationForCurrentContext();
         return;
     }
     const selectedOption = recommendationState.options.find((option) => option.optionId === recommendationState.selectedOptionId);
@@ -872,7 +878,7 @@ function initializeCropper() {
                 overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
                 overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
                 clearUndoHistory();
-                invalidateRecommendationSnapshot("STALE_SNAPSHOT");
+                invalidateAndRegenerateRecommendationsAfterContextChange("STALE_SNAPSHOT");
             },
         });
     });
@@ -885,6 +891,7 @@ async function runStep1WhenCropperReady() {
         return;
     }
     runStep1();
+    triggerStarterRecommendationForCurrentContext();
 }
 
 step1CanvasUpscaled.addEventListener("cropend", runStep1);
@@ -1086,7 +1093,7 @@ function handleResolutionChange() {
     overridePixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
     overrideDepthPixelArray = new Array(targetResolution[0] * targetResolution[1] * 4).fill(null);
     clearUndoHistory();
-    invalidateRecommendationSnapshot("STALE_SNAPSHOT");
+    invalidateAndRegenerateRecommendationsAfterContextChange("STALE_SNAPSHOT");
     document.getElementById("width-text").title = `${(targetResolution[0] * PIXEL_WIDTH_CM).toFixed(1)} cm, ${(
         targetResolution[0] *
         PIXEL_WIDTH_CM *

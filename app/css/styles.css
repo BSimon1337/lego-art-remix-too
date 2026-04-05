@@ -232,27 +232,72 @@ h1, h2, h3, h4, h5 {
 
 /* ===== Recommendation Panel ===== */
 .recommendation-panel {
-  margin-top: 10px;
+  margin-top: 12px;
+  border: 1px solid var(--slate-200);
 }
 
 .recommendation-actions {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .recommendation-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
 
 .recommendation-option-placeholder {
   border: 1px dashed var(--slate-300);
   border-radius: 6px;
-  padding: 8px;
+  padding: 10px;
   color: var(--slate-600);
   background: var(--slate-50);
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.recommendation-option-placeholder:hover {
+  border-color: var(--slate-400);
+  transform: translateY(-1px);
+}
+
+.recommendation-option-placeholder:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 2px;
+}
+
+.recommendation-option-placeholder[aria-pressed="true"] {
+  border-style: solid;
+  border-color: var(--info);
+  box-shadow: 0 0 0 2px rgba(23, 162, 184, 0.12);
+}
+
+#recommendation-panel-card .btn:focus-visible,
+#recommendation-panel-card input:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 2px;
+}
+
+#saved-recommendation-profiles-container {
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+#saved-recommendation-profiles-container .btn-group {
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 576px) {
+  .recommendation-actions {
+    width: 100%;
+  }
+
+  .recommendation-actions .btn {
+    flex: 1 1 auto;
+  }
 }
 
 /* ===== Step Headers ===== */

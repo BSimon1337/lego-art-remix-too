@@ -1914,7 +1914,9 @@ function generateRecommendationOptions(snapshot, paletteId = "current-selection"
     );
 }
 
-window.LARRecommendationAlgo = {
-    generateRecommendationOptions,
-    scoreRecommendationGoal,
-};
+if (typeof window !== "undefined") {
+    window.LARRecommendationAlgo = {
+        generateRecommendationOptions,
+        scoreRecommendationGoal,
+    };
+}
