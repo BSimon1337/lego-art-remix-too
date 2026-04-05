@@ -198,6 +198,9 @@ const recommendationElements = {
     selectedGoal: document.getElementById("selected-recommendation-goal"),
     selectedConfidence: document.getElementById("selected-recommendation-confidence"),
     selectedTradeoff: document.getElementById("selected-recommendation-tradeoff"),
+    profileNameInput: document.getElementById("recommendation-profile-name-input"),
+    saveProfileButton: document.getElementById("save-recommendation-profile-button"),
+    savedProfilesContainer: document.getElementById("saved-recommendation-profiles-container"),
 };
 
 const recommendationState = {
@@ -214,7 +217,10 @@ const recommendationState = {
     previewOptionId: null,
     currentWorkingOptionId: null,
     currentWorkingConfiguration: null,
+    savedProfiles: [],
 };
+
+const RECOMMENDATION_PROFILE_OWNER_REF = "current-session";
 
 const RECOMMENDATION_ERROR_MESSAGES = {
     NO_VALID_IMAGE_CONTEXT: "Upload and crop an image before generating recommendations.",
@@ -247,6 +253,8 @@ function initializeRecommendationPanelScaffold() {
     if (recommendationElements.selectedMetadataPanel) {
         recommendationElements.selectedMetadataPanel.hidden = true;
     }
+    setRecommendationProfileNameInputDefault();
+    renderSavedRecommendationProfiles();
     optionsContainer.innerHTML = "";
 
     recommendationState.snapshotId = null;
@@ -260,6 +268,7 @@ function initializeRecommendationPanelScaffold() {
     recommendationState.previewOptionId = null;
     recommendationState.currentWorkingOptionId = null;
     recommendationState.currentWorkingConfiguration = null;
+    recommendationState.savedProfiles = [];
     recommendationState.initialized = true;
 }
 
@@ -430,6 +439,82 @@ function renderSelectedRecommendationMetadata(option) {
     }
 }
 
+function getRecommendationStorage() {
+    return window.LARRecommendationStorage || null;
+}
+
+function getSuggestedRecommendationProfileName() {
+    if (recommendationState.activeProfile?.name) {
+        return recommendationState.activeProfile.name;
+    }
+    const selectedOption = recommendationState.options.find((option) => option.optionId === recommendationState.selectedOptionId);
+    if (selectedOption) {
+        return `Recommended: ${selectedOption.summary?.label || selectedOption.goal}`;
+    }
+    return "My Recommendation Profile";
+}
+
+function setRecommendationProfileNameInputDefault() {
+    if (!recommendationElements.profileNameInput) {
+        return;
+    }
+    recommendationElements.profileNameInput.value = getSuggestedRecommendationProfileName();
+}
+
+function renderSavedRecommendationProfiles() {
+    const storage = getRecommendationStorage();
+    if (!storage || typeof storage.renderRecommendationProfileList !== "function" || !recommendationElements.savedProfilesContainer) {
+        return;
+    }
+    storage.renderRecommendationProfileList(recommendationElements.savedProfilesContainer, recommendationState.savedProfiles, {
+        onApply: (profile) => {
+            applySavedRecommendationProfile(profile);
+        },
+        onRename: (profile) => {
+            const nextName = prompt("Update profile name:", profile.name || "");
+            if (!nextName || !nextName.trim()) {
+                return;
+            }
+            if (typeof storage.updateRecommendationProfile === "function") {
+                try {
+                    storage.updateRecommendationProfile(profile.profileId, { name: nextName.trim() }, RECOMMENDATION_PROFILE_OWNER_REF);
+                    void refreshSavedRecommendationProfiles();
+                } catch (_e) {
+                    setRecommendationStatus("Could not rename profile right now.");
+                }
+            }
+        },
+        onDelete: (profile) => {
+            if (!confirm(`Delete saved profile "${profile.name}"?`)) {
+                return;
+            }
+            if (typeof storage.deleteRecommendationProfile === "function") {
+                try {
+                    storage.deleteRecommendationProfile(profile.profileId, RECOMMENDATION_PROFILE_OWNER_REF);
+                    void refreshSavedRecommendationProfiles();
+                } catch (_e) {
+                    setRecommendationStatus("Could not delete profile right now.");
+                }
+            }
+        },
+    });
+}
+
+async function refreshSavedRecommendationProfiles() {
+    const storage = getRecommendationStorage();
+    if (!storage || typeof storage.listRecommendationProfiles !== "function") {
+        return;
+    }
+    try {
+        const profiles = await storage.listRecommendationProfiles(RECOMMENDATION_PROFILE_OWNER_REF);
+        recommendationState.savedProfiles = Array.isArray(profiles) ? profiles : [];
+        renderSavedRecommendationProfiles();
+    } catch (_e) {
+        recommendationState.savedProfiles = [];
+        renderSavedRecommendationProfiles();
+    }
+}
+
 function updateRecommendationSummaryForOption(option, leadInText = "Starter recommendation") {
     if (!recommendationElements.summary || !recommendationElements.summaryText) {
         return;
@@ -577,6 +662,43 @@ function applyRecommendedPictureSettings(pictureSettings = {}) {
     applyRecommendedQuantizationByName(pictureSettings.quantization);
 }
 
+function buildProfileAsActiveWorkingConfiguration(profile) {
+    recommendationState.activeProfile = {
+        profileId: profile.profileId,
+        name: profile.name || "Saved Recommendation",
+        paletteId: profile.paletteId,
+        pictureSettings: profile.pictureSettings || {},
+        sourceGoal: profile.sourceGoal || "saved_profile",
+        createdAt: profile.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        ownerRef: RECOMMENDATION_PROFILE_OWNER_REF,
+    };
+    recommendationState.currentWorkingOptionId = null;
+    recommendationState.currentWorkingConfiguration = {
+        optionId: null,
+        paletteId: recommendationState.activeProfile.paletteId,
+        pictureSettings: { ...recommendationState.activeProfile.pictureSettings },
+        sourceGoal: recommendationState.activeProfile.sourceGoal,
+    };
+}
+
+function applySavedRecommendationProfile(profile) {
+    if (!profile || !profile.pictureSettings) {
+        return;
+    }
+    applyRecommendedPaletteByName(profile.paletteId);
+    applyRecommendedPictureSettings(profile.pictureSettings);
+    runStep2();
+    buildProfileAsActiveWorkingConfiguration(profile);
+    setRecommendationProfileNameInputDefault();
+    setRecommendationStatus(`Saved profile "${profile.name}" applied. You can continue with manual adjustments.`);
+    recommendationElements.summary.hidden = false;
+    recommendationElements.summaryText.textContent = `Applied saved profile: ${profile.name}`;
+    recordRecommendationTelemetry("recommendation_saved_profile_apply_success", {
+        profileId: profile.profileId,
+    });
+}
+
 function handleGenerateRecommendationsClick(triggerSource = "manual") {
     const context = getCurrentRecommendationInputContext();
     if (!context.sourceImageId || !context.cropBounds) {
@@ -657,14 +779,7 @@ function handleApplyRecommendationClick() {
     };
     renderRecommendationOptions(recommendationState.options);
     renderSelectedRecommendationMetadata(selectedOption);
-    const storage = window.LARRecommendationStorage;
-    if (storage && typeof storage.saveRecommendationProfile === "function") {
-        try {
-            storage.saveRecommendationProfile(applyPayload.activeProfile);
-        } catch (_e) {
-            // persistence failure should not block apply behavior
-        }
-    }
+    setRecommendationProfileNameInputDefault();
     updateRecommendationSummaryForOption(selectedOption, "Applied");
     setRecommendationStatus("Recommendation applied. You can continue with manual adjustments.");
     recordRecommendationTelemetry("recommendation_apply_success", {
@@ -672,11 +787,46 @@ function handleApplyRecommendationClick() {
     });
 }
 
+function handleSaveRecommendationProfileClick() {
+    if (!recommendationState.activeProfile) {
+        setRecommendationStatus("Apply a recommendation option before saving a profile.");
+        return;
+    }
+    const storage = getRecommendationStorage();
+    if (!storage || typeof storage.saveRecommendationProfile !== "function") {
+        setRecommendationStatus("Profile storage is unavailable.");
+        return;
+    }
+    const requestedName = recommendationElements.profileNameInput?.value?.trim();
+    const name = requestedName || getSuggestedRecommendationProfileName();
+    const profileToSave = {
+        ...recommendationState.activeProfile,
+        profileId: recommendationState.activeProfile.profileId || `profile-${Date.now()}`,
+        name,
+        ownerRef: RECOMMENDATION_PROFILE_OWNER_REF,
+        updatedAt: new Date().toISOString(),
+    };
+    try {
+        const savedProfile = storage.saveRecommendationProfile(profileToSave);
+        recommendationState.activeProfile = savedProfile;
+        setRecommendationProfileNameInputDefault();
+        void refreshSavedRecommendationProfiles();
+        setRecommendationStatus(`Saved recommendation profile "${savedProfile.name}".`);
+        recordRecommendationTelemetry("recommendation_profile_save_success", {
+            profileId: savedProfile.profileId,
+        });
+    } catch (_e) {
+        setRecommendationStatus("Failed to save recommendation profile.");
+        recordRecommendationTelemetry("recommendation_profile_save_failed");
+    }
+}
+
 function bindRecommendationPanelEvents() {
     recommendationElements.generateButton?.addEventListener("click", () => {
         handleGenerateRecommendationsClick("manual");
     });
     recommendationElements.applyButton?.addEventListener("click", handleApplyRecommendationClick);
+    recommendationElements.saveProfileButton?.addEventListener("click", handleSaveRecommendationProfileClick);
 }
 
 document.getElementById("width-text").title = `${(targetResolution[0] * PIXEL_WIDTH_CM).toFixed(1)} cm, ${(
@@ -3674,5 +3824,6 @@ window.AppBridge = {
 
 initializeRecommendationPanelScaffold();
 bindRecommendationPanelEvents();
+void refreshSavedRecommendationProfiles();
 updateRecommendationAvailability();
 enableInteraction(); // enable interaction once everything has loaded in

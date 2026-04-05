@@ -1931,6 +1931,26 @@
           <small class="text-muted d-block mt-1" id="selected-recommendation-tradeoff"></small>
         </div>
       </div>
+      <div class="card mt-2" id="recommendation-profile-controls-card">
+        <div class="card-body p-2">
+          <small class="text-uppercase text-muted d-block">Saved Recommendation Profiles</small>
+          <div class="input-group input-group-sm mt-2">
+            <input
+              type="text"
+              class="form-control"
+              id="recommendation-profile-name-input"
+              maxlength="80"
+              placeholder="Profile name"
+            />
+            <div class="input-group-append">
+              <button class="btn btn-outline-primary" id="save-recommendation-profile-button" type="button">
+                Save Profile
+              </button>
+            </div>
+          </div>
+          <div class="recommendation-saved-profiles mt-2" id="saved-recommendation-profiles-container"></div>
+        </div>
+      </div>
     </div>
 
     

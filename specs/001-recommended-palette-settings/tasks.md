@@ -92,12 +92,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] Add save-profile control and profile naming UI in app/index.html
-- [ ] T024 [US3] Implement save-profile action using existing Firebase persistence patterns in app/js/ux-sharing.js
-- [ ] T025 [US3] Implement profile list retrieval and rendering for reuse in app/js/ux-sharing.js
-- [ ] T026 [US3] Add apply-saved-profile action that maps profile values to active controls in app/js/index.js
-- [ ] T027 [US3] Add profile update/delete support for saved recommendations in app/js/ux-sharing.js
-- [ ] T028 [US3] Ensure saved-profile apply keeps all controls editable and compatible with current image context in app/js/index.js
+- [X] T023 [US3] Add save-profile control and profile naming UI in app/index.html
+- [X] T024 [US3] Implement save-profile action using existing Firebase persistence patterns in app/js/ux-sharing.js
+- [X] T025 [US3] Implement profile list retrieval and rendering for reuse in app/js/ux-sharing.js
+- [X] T026 [US3] Add apply-saved-profile action that maps profile values to active controls in app/js/index.js
+- [X] T027 [US3] Add profile update/delete support for saved recommendations in app/js/ux-sharing.js
+- [X] T028 [US3] Ensure saved-profile apply keeps all controls editable and compatible with current image context in app/js/index.js
 
 **Checkpoint**: All user stories are independently functional.
 

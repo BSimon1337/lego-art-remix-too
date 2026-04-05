@@ -697,6 +697,8 @@
     }
 
     const RECOMMENDATION_PROFILE_STORAGE_KEY = 'lar_recommendation_profiles';
+    const RECOMMENDATION_PROFILE_MAX_ITEMS = 50;
+    const RECOMMENDATION_PROFILE_DEFAULT_OWNER = 'current-session';
 
     function getStoredRecommendationProfiles() {
         try {
@@ -704,6 +706,31 @@
         } catch (_e) {
             return [];
         }
+    }
+
+    function setStoredRecommendationProfiles(profiles) {
+        localStorage.setItem(
+            RECOMMENDATION_PROFILE_STORAGE_KEY,
+            JSON.stringify((profiles || []).slice(0, RECOMMENDATION_PROFILE_MAX_ITEMS))
+        );
+    }
+
+    function getRecommendationProfilesDbRef(ownerRef = RECOMMENDATION_PROFILE_DEFAULT_OWNER) {
+        try {
+            if (!window.firebase?.database) {
+                return null;
+            }
+            return window.firebase.database().ref(`/recommendation-profiles/${ownerRef}`);
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    function getProfileOwnerRef(profileOrOwnerRef) {
+        if (typeof profileOrOwnerRef === 'string' && profileOrOwnerRef.length > 0) {
+            return profileOrOwnerRef;
+        }
+        return profileOrOwnerRef?.ownerRef || RECOMMENDATION_PROFILE_DEFAULT_OWNER;
     }
 
     function serializeRecommendationProfile(profile) {
@@ -745,14 +772,147 @@
         const normalized = deserializeRecommendationProfile(serialized);
         const profiles = getStoredRecommendationProfiles().filter((p) => p.profileId !== normalized.profileId);
         profiles.unshift(normalized);
-        localStorage.setItem(RECOMMENDATION_PROFILE_STORAGE_KEY, JSON.stringify(profiles.slice(0, 50)));
+        setStoredRecommendationProfiles(profiles);
+        const ownerRef = getProfileOwnerRef(normalized);
+        const dbRef = getRecommendationProfilesDbRef(ownerRef);
+        if (dbRef) {
+            dbRef.child(normalized.profileId).set(normalized).catch((_e) => {});
+        }
         return normalized;
+    }
+
+    function updateRecommendationProfile(profileId, updates = {}, ownerRef = RECOMMENDATION_PROFILE_DEFAULT_OWNER) {
+        if (!profileId) {
+            throw new Error('Missing profileId');
+        }
+        const profiles = getStoredRecommendationProfiles();
+        const index = profiles.findIndex((profile) => profile.profileId === profileId);
+        if (index < 0) {
+            throw new Error('Profile not found');
+        }
+        const updatedProfile = deserializeRecommendationProfile({
+            ...profiles[index],
+            ...updates,
+            profileId,
+            updatedAt: new Date().toISOString(),
+            ownerRef: getProfileOwnerRef(ownerRef),
+        });
+        profiles[index] = updatedProfile;
+        setStoredRecommendationProfiles(profiles);
+        const dbRef = getRecommendationProfilesDbRef(getProfileOwnerRef(ownerRef));
+        if (dbRef) {
+            dbRef.child(profileId).set(updatedProfile).catch((_e) => {});
+        }
+        return updatedProfile;
+    }
+
+    function deleteRecommendationProfile(profileId, ownerRef = RECOMMENDATION_PROFILE_DEFAULT_OWNER) {
+        if (!profileId) {
+            throw new Error('Missing profileId');
+        }
+        const remainingProfiles = getStoredRecommendationProfiles().filter((profile) => profile.profileId !== profileId);
+        setStoredRecommendationProfiles(remainingProfiles);
+        const dbRef = getRecommendationProfilesDbRef(getProfileOwnerRef(ownerRef));
+        if (dbRef) {
+            dbRef.child(profileId).remove().catch((_e) => {});
+        }
+        return remainingProfiles;
+    }
+
+    function listRecommendationProfiles(ownerRef = RECOMMENDATION_PROFILE_DEFAULT_OWNER) {
+        const normalizedOwnerRef = getProfileOwnerRef(ownerRef);
+        const localProfiles = getStoredRecommendationProfiles()
+            .filter((profile) => getProfileOwnerRef(profile) === normalizedOwnerRef)
+            .map((profile) => deserializeRecommendationProfile(profile));
+        const dbRef = getRecommendationProfilesDbRef(normalizedOwnerRef);
+        if (!dbRef) {
+            return Promise.resolve(localProfiles);
+        }
+        return dbRef
+            .once('value')
+            .then((snapshot) => {
+                const raw = snapshot.val() || {};
+                const remoteProfiles = Object.keys(raw)
+                    .map((profileId) => deserializeRecommendationProfile({ ...raw[profileId], profileId }))
+                    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+                const byId = new Map();
+                [...remoteProfiles, ...localProfiles].forEach((profile) => {
+                    if (!byId.has(profile.profileId)) {
+                        byId.set(profile.profileId, profile);
+                    }
+                });
+                const mergedProfiles = [...byId.values()].slice(0, RECOMMENDATION_PROFILE_MAX_ITEMS);
+                setStoredRecommendationProfiles([
+                    ...mergedProfiles,
+                    ...getStoredRecommendationProfiles().filter((profile) => getProfileOwnerRef(profile) !== normalizedOwnerRef),
+                ]);
+                return mergedProfiles;
+            })
+            .catch(() => localProfiles);
+    }
+
+    function renderRecommendationProfileList(containerEl, profiles, handlers = {}) {
+        if (!containerEl) {
+            return;
+        }
+        containerEl.innerHTML = '';
+        if (!profiles || profiles.length === 0) {
+            const empty = document.createElement('small');
+            empty.className = 'text-muted d-block';
+            empty.textContent = 'No saved recommendation profiles yet.';
+            containerEl.appendChild(empty);
+            return;
+        }
+        profiles.forEach((profile) => {
+            const row = document.createElement('div');
+            row.className = 'd-flex justify-content-between align-items-start border rounded p-2 mb-2';
+
+            const info = document.createElement('div');
+            info.className = 'mr-2';
+            info.innerHTML = `
+                <strong>${profile.name}</strong>
+                <small class="text-muted d-block">Goal: ${profile.sourceGoal || 'custom'} | Updated: ${new Date(profile.updatedAt).toLocaleString()}</small>
+            `;
+
+            const actions = document.createElement('div');
+            actions.className = 'btn-group btn-group-sm';
+
+            const applyBtn = document.createElement('button');
+            applyBtn.type = 'button';
+            applyBtn.className = 'btn btn-outline-info';
+            applyBtn.textContent = 'Apply';
+            applyBtn.addEventListener('click', () => handlers.onApply?.(profile));
+
+            const renameBtn = document.createElement('button');
+            renameBtn.type = 'button';
+            renameBtn.className = 'btn btn-outline-secondary';
+            renameBtn.textContent = 'Rename';
+            renameBtn.addEventListener('click', () => handlers.onRename?.(profile));
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'btn btn-outline-danger';
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.addEventListener('click', () => handlers.onDelete?.(profile));
+
+            actions.appendChild(applyBtn);
+            actions.appendChild(renameBtn);
+            actions.appendChild(deleteBtn);
+
+            row.appendChild(info);
+            row.appendChild(actions);
+            containerEl.appendChild(row);
+        });
     }
 
     window.LARRecommendationStorage = {
         serializeRecommendationProfile,
         deserializeRecommendationProfile,
         saveRecommendationProfile,
+        updateRecommendationProfile,
+        deleteRecommendationProfile,
+        listRecommendationProfiles,
+        renderRecommendationProfileList,
         getStoredRecommendationProfiles,
     };
 
