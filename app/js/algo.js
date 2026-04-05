@@ -1831,10 +1831,22 @@ function getVariablePixelWantedListXML(pixelColorMatrix, variablePixelPieceDimen
   </INVENTORY>`;
 }
 
-const RECOMMENDATION_GOAL_WEIGHTS = {
-    balanced_quality: { complexity: 0.45, contrast: 0.35, paletteSpan: 0.2 },
-    lower_piece_count: { complexity: 0.2, contrast: 0.2, paletteSpan: 0.6 },
-    stronger_detail: { complexity: 0.5, contrast: 0.4, paletteSpan: 0.1 },
+const RECOMMENDATION_GOAL_CONFIG = {
+    balanced_quality: {
+        label: "Balanced Quality",
+        tradeoff: "Balanced output quality and build simplicity.",
+        weights: { complexity: 0.45, contrast: 0.35, paletteSpan: 0.2 },
+    },
+    lower_piece_count: {
+        label: "Lower Piece Count",
+        tradeoff: "Lower complexity and fewer unique pieces.",
+        weights: { complexity: 0.2, contrast: 0.2, paletteSpan: 0.6 },
+    },
+    stronger_detail: {
+        label: "Stronger Detail",
+        tradeoff: "Higher visual detail with denser variation.",
+        weights: { complexity: 0.5, contrast: 0.4, paletteSpan: 0.1 },
+    },
 };
 
 function clamp01(input) {
@@ -1842,7 +1854,8 @@ function clamp01(input) {
 }
 
 function scoreRecommendationGoal(goal, snapshotMetrics) {
-    const weights = RECOMMENDATION_GOAL_WEIGHTS[goal] || RECOMMENDATION_GOAL_WEIGHTS.balanced_quality;
+    const fallbackWeights = RECOMMENDATION_GOAL_CONFIG.balanced_quality.weights;
+    const weights = RECOMMENDATION_GOAL_CONFIG[goal]?.weights || fallbackWeights;
     const complexity = clamp01(snapshotMetrics?.colorComplexityScore ?? 0.5);
     const contrast = clamp01(snapshotMetrics?.contrastScore ?? 0.5);
     const paletteSpan = clamp01(1 - Math.abs(complexity - contrast));
@@ -1876,14 +1889,15 @@ function getRecommendedPictureSettings(goal, snapshotMetrics) {
 }
 
 function createRecommendationOptionFromGoal(goal, paletteId, snapshotMetrics, snapshotId) {
+    const goalConfig = RECOMMENDATION_GOAL_CONFIG[goal] || RECOMMENDATION_GOAL_CONFIG.balanced_quality;
     return {
         optionId: `${goal}-${uuidv4()}`,
         goal,
         paletteId,
         pictureSettings: getRecommendedPictureSettings(goal, snapshotMetrics),
         summary: {
-            label: goal.replace(/_/g, " "),
-            tradeoff: goal === "lower_piece_count" ? "Lower complexity and fewer unique pieces." : goal === "stronger_detail" ? "Higher visual detail with denser variation." : "Balanced output quality and build simplicity.",
+            label: goalConfig.label,
+            tradeoff: goalConfig.tradeoff,
         },
         confidence: scoreRecommendationGoal(goal, snapshotMetrics),
         snapshotId,
@@ -1891,7 +1905,7 @@ function createRecommendationOptionFromGoal(goal, paletteId, snapshotMetrics, sn
 }
 
 function generateRecommendationOptions(snapshot, paletteId = "current-selection") {
-    const goals = Object.keys(RECOMMENDATION_GOAL_WEIGHTS);
+    const goals = ["balanced_quality", "lower_piece_count", "stronger_detail"];
     return goals.map((goal) =>
         createRecommendationOptionFromGoal(goal, paletteId, {
             colorComplexityScore: snapshot?.colorComplexityScore,

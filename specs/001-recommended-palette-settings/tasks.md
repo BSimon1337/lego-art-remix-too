@@ -73,12 +73,12 @@
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] Expand recommendation generation to provide balanced/lower-piece/stronger-detail options in app/js/algo.js
-- [ ] T018 [US2] Render selectable option cards and active selection state in app/index.html
-- [ ] T019 [US2] Implement option-switch handler that refreshes preview and summary in app/js/index.js
-- [ ] T020 [US2] Add selected-option metadata panel (goal/tradeoff/confidence) in app/index.html
-- [ ] T021 [US2] Persist active option as current working configuration in app/js/index.js
-- [ ] T022 [US2] Ensure option comparisons do not overwrite user manual changes until explicit apply in app/js/index.js
+- [X] T017 [US2] Expand recommendation generation to provide balanced/lower-piece/stronger-detail options in app/js/algo.js
+- [X] T018 [US2] Render selectable option cards and active selection state in app/index.html
+- [X] T019 [US2] Implement option-switch handler that refreshes preview and summary in app/js/index.js
+- [X] T020 [US2] Add selected-option metadata panel (goal/tradeoff/confidence) in app/index.html
+- [X] T021 [US2] Persist active option as current working configuration in app/js/index.js
+- [X] T022 [US2] Ensure option comparisons do not overwrite user manual changes until explicit apply in app/js/index.js
 
 **Checkpoint**: User Stories 1 and 2 both work independently.
 
