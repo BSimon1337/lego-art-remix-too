@@ -54,12 +54,12 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Implement recommendation request trigger flow after valid upload/crop context in app/js/index.js
-- [ ] T012 [US1] Render recommendation list with labels and summary text in app/index.html
-- [ ] T013 [US1] Bind recommendation render/update DOM logic for starter option display in app/js/index.js
-- [ ] T014 [US1] Implement one-click apply handler that updates active palette and picture settings in app/js/index.js
-- [ ] T015 [US1] Ensure manual controls stay enabled after recommendation apply in app/js/index.js
-- [ ] T016 [US1] Show fallback message path when no suitable recommendation is returned in app/index.html
+- [X] T011 [US1] Implement recommendation request trigger flow after valid upload/crop context in app/js/index.js
+- [X] T012 [US1] Render recommendation list with labels and summary text in app/index.html
+- [X] T013 [US1] Bind recommendation render/update DOM logic for starter option display in app/js/index.js
+- [X] T014 [US1] Implement one-click apply handler that updates active palette and picture settings in app/js/index.js
+- [X] T015 [US1] Ensure manual controls stay enabled after recommendation apply in app/js/index.js
+- [X] T016 [US1] Show fallback message path when no suitable recommendation is returned in app/index.html
 
 **Checkpoint**: User Story 1 is fully functional and independently testable.
 
