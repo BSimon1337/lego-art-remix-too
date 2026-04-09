@@ -1848,6 +1848,23 @@ const RECOMMENDATION_GOAL_CONFIG = {
         weights: { complexity: 0.5, contrast: 0.4, paletteSpan: 0.1 },
     },
 };
+const LOW_RES_STYLE_GOAL_CONFIG = {
+    cleaner_shapes: {
+        label: "Cleaner Shapes",
+        tradeoff: "Prioritizes silhouette stability and reduced micro-noise.",
+        weights: { subjectContrast: 0.5, inverseNoise: 0.5 },
+    },
+    stronger_contrast: {
+        label: "Stronger Contrast",
+        tradeoff: "Emphasizes edge contrast for better readability at distance.",
+        weights: { subjectContrast: 0.7, inverseNoise: 0.3 },
+    },
+    fewer_speckles: {
+        label: "Fewer Speckles",
+        tradeoff: "Smooths noisy micro-variations for cleaner low-res surfaces.",
+        weights: { subjectContrast: 0.35, inverseNoise: 0.65 },
+    },
+};
 
 function clamp01(input) {
     return Math.max(0, Math.min(1, input));
@@ -1914,9 +1931,72 @@ function generateRecommendationOptions(snapshot, paletteId = "current-selection"
     );
 }
 
+function scoreLowResStyleGoal(goal, assessmentMetrics) {
+    const fallbackWeights = LOW_RES_STYLE_GOAL_CONFIG.cleaner_shapes.weights;
+    const weights = LOW_RES_STYLE_GOAL_CONFIG[goal]?.weights || fallbackWeights;
+    const subjectContrast = clamp01(assessmentMetrics?.subjectContrastScore ?? 0.5);
+    const inverseNoise = clamp01(1 - (assessmentMetrics?.noiseLevelScore ?? 0.5));
+    return clamp01(
+        subjectContrast * weights.subjectContrast +
+        inverseNoise * weights.inverseNoise
+    );
+}
+
+function getLowResRecommendedPictureSettings(goal, assessmentMetrics) {
+    const subjectContrast = clamp01(assessmentMetrics?.subjectContrastScore ?? 0.5);
+    const noiseLevel = clamp01(assessmentMetrics?.noiseLevelScore ?? 0.5);
+    if (goal === "stronger_contrast") {
+        return {
+            quantization: "Floyd-Steinberg Dithering",
+            detailBias: clamp01(0.62 + subjectContrast * 0.3),
+            smoothingBias: clamp01(0.35 + noiseLevel * 0.15),
+        };
+    }
+    if (goal === "fewer_speckles") {
+        return {
+            quantization: "2 Phase",
+            detailBias: clamp01(0.36 + subjectContrast * 0.2),
+            smoothingBias: clamp01(0.66 + noiseLevel * 0.2),
+        };
+    }
+    return {
+        quantization: "2 Phase",
+        detailBias: clamp01(0.5 + subjectContrast * 0.2),
+        smoothingBias: clamp01(0.52 + noiseLevel * 0.15),
+    };
+}
+
+function createLowResStyleOptionFromGoal(goal, paletteId, assessment, assessmentId) {
+    const goalConfig = LOW_RES_STYLE_GOAL_CONFIG[goal] || LOW_RES_STYLE_GOAL_CONFIG.cleaner_shapes;
+    return {
+        optionId: `lowres-${goal}-${uuidv4()}`,
+        goal,
+        paletteId,
+        pictureSettings: getLowResRecommendedPictureSettings(goal, assessment),
+        summary: {
+            label: goalConfig.label,
+            tradeoff: goalConfig.tradeoff,
+        },
+        confidence: scoreLowResStyleGoal(goal, assessment),
+        assessmentId,
+    };
+}
+
+function generateLowResStyleOptions(assessment, paletteId = "current-selection") {
+    const goals = ["cleaner_shapes", "stronger_contrast", "fewer_speckles"];
+    return goals.map((goal) =>
+        createLowResStyleOptionFromGoal(goal, paletteId, {
+            subjectContrastScore: assessment?.subjectContrastScore,
+            noiseLevelScore: assessment?.noiseLevelScore,
+        }, assessment?.assessmentId)
+    );
+}
+
 if (typeof window !== "undefined") {
     window.LARRecommendationAlgo = {
         generateRecommendationOptions,
         scoreRecommendationGoal,
+        generateLowResStyleOptions,
+        scoreLowResStyleGoal,
     };
 }

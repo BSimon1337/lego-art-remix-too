@@ -236,6 +236,15 @@ h1, h2, h3, h4, h5 {
   border: 1px solid var(--slate-200);
 }
 
+.lowres-mode-badge {
+  vertical-align: middle;
+}
+
+.lowres-quality-hint {
+  display: block;
+  line-height: 1.3;
+}
+
 .recommendation-actions {
   display: flex;
   flex-wrap: wrap;
@@ -291,6 +300,11 @@ h1, h2, h3, h4, h5 {
 }
 
 @media (max-width: 576px) {
+  .lowres-mode-badge {
+    margin-top: 4px;
+    margin-left: 0 !important;
+  }
+
   .recommendation-actions {
     width: 100%;
   }

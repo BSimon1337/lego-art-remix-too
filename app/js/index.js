@@ -183,6 +183,9 @@ const RECOMMENDATION_GOALS = Object.freeze([
     "lower_piece_count",
     "stronger_detail",
 ]);
+const LOW_RESOLUTION_MAX_WIDTH = 64;
+const LOW_RESOLUTION_MAX_HEIGHT = 64;
+const LOW_RESOLUTION_MAX_AREA = 4096;
 
 const recommendationElements = {
     panel: document.getElementById("recommendation-panel-card"),
@@ -201,6 +204,8 @@ const recommendationElements = {
     profileNameInput: document.getElementById("recommendation-profile-name-input"),
     saveProfileButton: document.getElementById("save-recommendation-profile-button"),
     savedProfilesContainer: document.getElementById("saved-recommendation-profiles-container"),
+    lowResHint: document.getElementById("lowres-quality-hint"),
+    lowResBadge: document.getElementById("lowres-mode-badge"),
 };
 
 const recommendationState = {
@@ -218,16 +223,36 @@ const recommendationState = {
     currentWorkingOptionId: null,
     currentWorkingConfiguration: null,
     savedProfiles: [],
+    lowResAssessment: null,
 };
 
 const RECOMMENDATION_PROFILE_OWNER_REF = "current-session";
+let lowResolutionScaffoldInitialized = false;
 
 const RECOMMENDATION_ERROR_MESSAGES = {
     NO_VALID_IMAGE_CONTEXT: "Upload and crop an image before generating recommendations.",
     PREPROCESSING_INCOMPLETE: "Please wait for image preprocessing to complete.",
     NO_SUITABLE_RECOMMENDATION: "No suitable recommendation could be generated for the current constraints.",
     STALE_SNAPSHOT: "Recommendations became stale after crop or dimension changes. Regenerating now.",
+    PROFILE_SAVE_FAILED: "Profile save failed. Please retry after confirming your active recommendation.",
+    PROFILE_APPLY_INCOMPATIBLE: "Saved profile could not be safely applied to the current image context.",
 };
+
+function initializeLowResolutionScaffold() {
+    if (lowResolutionScaffoldInitialized) {
+        return;
+    }
+    recommendationElements.panel?.setAttribute("data-lowres-max-width", String(LOW_RESOLUTION_MAX_WIDTH));
+    recommendationElements.panel?.setAttribute("data-lowres-max-height", String(LOW_RESOLUTION_MAX_HEIGHT));
+    recommendationElements.panel?.setAttribute("data-lowres-max-area", String(LOW_RESOLUTION_MAX_AREA));
+    if (recommendationElements.lowResHint) {
+        recommendationElements.lowResHint.hidden = false;
+    }
+    if (recommendationElements.lowResBadge) {
+        recommendationElements.lowResBadge.hidden = true;
+    }
+    lowResolutionScaffoldInitialized = true;
+}
 
 function initializeRecommendationPanelScaffold() {
     if (recommendationState.initialized) {
@@ -269,12 +294,22 @@ function initializeRecommendationPanelScaffold() {
     recommendationState.currentWorkingOptionId = null;
     recommendationState.currentWorkingConfiguration = null;
     recommendationState.savedProfiles = [];
+    recommendationState.lowResAssessment = null;
     recommendationState.initialized = true;
 }
 
 function recordRecommendationTelemetry(eventName, metadata) {
-    if (window.LARMetrics && typeof window.LARMetrics.recordRecommendationMetric === "function") {
+    if (!window.LARMetrics) {
+        return;
+    }
+    if (typeof window.LARMetrics.recordRecommendationMetric === "function") {
         window.LARMetrics.recordRecommendationMetric(eventName, metadata);
+    }
+    const shouldRecordLowRes =
+        Boolean(metadata?.lowResMode) ||
+        String(eventName || "").toLowerCase().includes("lowres");
+    if (shouldRecordLowRes && typeof window.LARMetrics.recordLowResRecommendationMetric === "function") {
+        window.LARMetrics.recordLowResRecommendationMetric(eventName, metadata);
     }
 }
 
@@ -310,6 +345,21 @@ function getCurrentRecommendationInputContext() {
             height: Number(targetResolution[1]),
         },
     };
+}
+
+function isLowResolutionTargetDimensions(targetDimensions) {
+    if (!targetDimensions) {
+        return false;
+    }
+    const width = Number(targetDimensions.width || 0);
+    const height = Number(targetDimensions.height || 0);
+    return (
+        width > 0 &&
+        height > 0 &&
+        width <= LOW_RESOLUTION_MAX_WIDTH &&
+        height <= LOW_RESOLUTION_MAX_HEIGHT &&
+        width * height <= LOW_RESOLUTION_MAX_AREA
+    );
 }
 
 function getRecommendationContextKey(context) {
@@ -353,6 +403,33 @@ function getImageAnalysisSnapshotMetrics() {
     };
 }
 
+function getLowResolutionAssessmentMetrics() {
+    if (!inputCanvas || inputCanvas.width === 0 || inputCanvas.height === 0) {
+        return { subjectContrastScore: 0, noiseLevelScore: 0 };
+    }
+    const pixels = getPixelArrayFromCanvas(inputCanvas);
+    const sampledIndices = [];
+    const stride = Math.max(4, Math.floor(pixels.length / (4 * 4000)) * 4);
+    for (let i = 0; i < pixels.length; i += stride) {
+        sampledIndices.push(i);
+    }
+    let contrastAccumulator = 0;
+    let noiseAccumulator = 0;
+    sampledIndices.forEach((idx) => {
+        const base = (pixels[idx] + pixels[idx + 1] + pixels[idx + 2]) / 3;
+        const nextIdx = Math.min(idx + 4, pixels.length - 4);
+        const next = (pixels[nextIdx] + pixels[nextIdx + 1] + pixels[nextIdx + 2]) / 3;
+        const delta = Math.abs(base - next);
+        contrastAccumulator += delta;
+        noiseAccumulator += Math.max(0, delta - 8);
+    });
+    const count = Math.max(sampledIndices.length, 1);
+    return {
+        subjectContrastScore: Math.min(contrastAccumulator / (count * 96), 1),
+        noiseLevelScore: Math.min(noiseAccumulator / (count * 64), 1),
+    };
+}
+
 function createImageAnalysisSnapshot(context) {
     const snapshotId = `snapshot-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const metrics = getImageAnalysisSnapshotMetrics();
@@ -363,6 +440,21 @@ function createImageAnalysisSnapshot(context) {
         targetDimensions: context.targetDimensions,
         colorComplexityScore: metrics.colorComplexityScore,
         contrastScore: metrics.contrastScore,
+        generatedAt: new Date().toISOString(),
+    };
+}
+
+function createLowResolutionAssessment(context) {
+    const assessmentId = `lowres-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const metrics = getLowResolutionAssessmentMetrics();
+    return {
+        assessmentId,
+        sourceImageId: context.sourceImageId,
+        cropBounds: context.cropBounds,
+        targetDimensions: context.targetDimensions,
+        isLowResolution: isLowResolutionTargetDimensions(context.targetDimensions),
+        subjectContrastScore: metrics.subjectContrastScore,
+        noiseLevelScore: metrics.noiseLevelScore,
         generatedAt: new Date().toISOString(),
     };
 }
@@ -381,11 +473,26 @@ function isRecommendationSnapshotStale(snapshot, context) {
     return staleWidth || staleHeight || staleCrop;
 }
 
+function isLowResolutionAssessmentStale(assessment, context) {
+    if (!assessment || !context || !context.cropBounds) {
+        return true;
+    }
+    const staleWidth = assessment.targetDimensions?.width !== context.targetDimensions?.width;
+    const staleHeight = assessment.targetDimensions?.height !== context.targetDimensions?.height;
+    const staleCrop =
+        assessment.cropBounds?.x !== context.cropBounds?.x ||
+        assessment.cropBounds?.y !== context.cropBounds?.y ||
+        assessment.cropBounds?.width !== context.cropBounds?.width ||
+        assessment.cropBounds?.height !== context.cropBounds?.height;
+    return staleWidth || staleHeight || staleCrop;
+}
+
 function buildRecommendationGenerateRequestPayload(context) {
     return {
         sourceImageId: context.sourceImageId,
         cropBounds: context.cropBounds,
         targetDimensions: context.targetDimensions,
+        lowResMode: isLowResolutionTargetDimensions(context.targetDimensions),
         activeConstraints: {
             infinitePieceCount: Boolean(document.getElementById("infinite-piece-count-check")?.checked),
             selectedStudMap: document.getElementById("select-starting-custom-stud-map-button")?.textContent?.trim() || null,
@@ -393,17 +500,37 @@ function buildRecommendationGenerateRequestPayload(context) {
     };
 }
 
-function buildRecommendationsReadyPayload(snapshot, options) {
+function buildLowResGenerateRequestPayload(context) {
+    const requestPayload = isLowResolutionTargetDimensions(context.targetDimensions)
+        ? buildLowResGenerateRequestPayload(context)
+        : buildRecommendationGenerateRequestPayload(context);
+    return {
+        ...requestPayload,
+        lowResMode: true,
+    };
+}
+
+function buildRecommendationsReadyPayload(snapshot, options, lowResAssessment = null) {
     return {
         snapshotId: snapshot.snapshotId,
+        assessmentId: lowResAssessment?.assessmentId || null,
         options,
         generatedAt: snapshot.generatedAt,
+    };
+}
+
+function buildLowResOptionsReadyPayload(lowResAssessment, options) {
+    return {
+        assessmentId: lowResAssessment?.assessmentId || null,
+        options,
+        generatedAt: lowResAssessment?.generatedAt || new Date().toISOString(),
     };
 }
 
 function buildRecommendationApplyPayload(option) {
     return {
         appliedOptionId: option.optionId,
+        assessmentId: recommendationState.lowResAssessment?.assessmentId || null,
         activeProfile: {
             profileId: `profile-${Date.now()}`,
             name: `Recommended: ${option.summary?.label || option.goal}`,
@@ -415,6 +542,15 @@ function buildRecommendationApplyPayload(option) {
             ownerRef: "current-session",
         },
         previewRefreshRequired: true,
+    };
+}
+
+function buildLowResOptionApplyPayload(option, lowResAssessment) {
+    const basePayload = buildRecommendationApplyPayload(option);
+    return {
+        ...basePayload,
+        optionId: option?.optionId || null,
+        assessmentId: lowResAssessment?.assessmentId || null,
     };
 }
 
@@ -577,6 +713,7 @@ function invalidateRecommendationSnapshot(reasonCode = "STALE_SNAPSHOT") {
     recommendationState.options = [];
     recommendationState.cropBounds = null;
     recommendationState.targetDimensions = null;
+    recommendationState.lowResAssessment = null;
     recommendationState.previewOptionId = null;
     recommendationElements.applyButton.disabled = true;
     recommendationElements.summary.hidden = true;
@@ -688,7 +825,10 @@ function buildProfileAsActiveWorkingConfiguration(profile) {
 }
 
 function applySavedRecommendationProfile(profile) {
-    if (!profile || !profile.pictureSettings) {
+    if (!profile || !profile.pictureSettings || !profile.paletteId) {
+        const errorCode = "PROFILE_APPLY_INCOMPATIBLE";
+        setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
+        recordRecommendationTelemetry("recommendation_saved_profile_apply_failed", { errorCode, lowResMode: true });
         return;
     }
     applyRecommendedPaletteByName(profile.paletteId);
@@ -701,6 +841,7 @@ function applySavedRecommendationProfile(profile) {
     recommendationElements.summaryText.textContent = `Applied saved profile: ${profile.name}`;
     recordRecommendationTelemetry("recommendation_saved_profile_apply_success", {
         profileId: profile.profileId,
+        lowResMode: true,
     });
 }
 
@@ -709,11 +850,12 @@ function handleGenerateRecommendationsClick(triggerSource = "manual") {
     if (!context.sourceImageId || !context.cropBounds) {
         const errorCode = "NO_VALID_IMAGE_CONTEXT";
         setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
-        recordRecommendationTelemetry("recommendation_generate_failed", { errorCode, triggerSource });
+        recordRecommendationTelemetry("recommendation_generate_failed", { errorCode, triggerSource, lowResMode: true });
         return false;
     }
     const requestPayload = buildRecommendationGenerateRequestPayload(context);
     const snapshot = createImageAnalysisSnapshot(context);
+    const lowResAssessment = createLowResolutionAssessment(context);
     const algo = window.LARRecommendationAlgo;
     const options =
         algo && typeof algo.generateRecommendationOptions === "function"
@@ -722,11 +864,21 @@ function handleGenerateRecommendationsClick(triggerSource = "manual") {
     if (!options || options.length === 0) {
         const errorCode = "NO_SUITABLE_RECOMMENDATION";
         setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
-        recordRecommendationTelemetry("recommendation_generate_failed", { errorCode, triggerSource });
+        recordRecommendationTelemetry("recommendation_generate_failed", {
+            errorCode,
+            triggerSource,
+            lowResMode: requestPayload.lowResMode,
+        });
         return false;
     }
-    const readyPayload = buildRecommendationsReadyPayload(snapshot, options);
+    const readyPayload = requestPayload.lowResMode
+        ? {
+            ...buildRecommendationsReadyPayload(snapshot, options, lowResAssessment),
+            ...buildLowResOptionsReadyPayload(lowResAssessment, options),
+        }
+        : buildRecommendationsReadyPayload(snapshot, options, lowResAssessment);
     recommendationState.snapshotId = readyPayload.snapshotId;
+    recommendationState.lowResAssessment = lowResAssessment;
     recommendationState.options = readyPayload.options;
     recommendationState.selectedOptionId = readyPayload.options[0].optionId;
     recommendationState.cropBounds = snapshot.cropBounds;
@@ -737,7 +889,9 @@ function handleGenerateRecommendationsClick(triggerSource = "manual") {
     recommendationState.lastAutoGeneratedContextKey = getRecommendationContextKey(context);
     recordRecommendationTelemetry("recommendation_generate_success", {
         snapshotId: readyPayload.snapshotId,
+        assessmentId: readyPayload.assessmentId,
         optionCount: readyPayload.options.length,
+        lowResMode: requestPayload.lowResMode,
         triggerSource,
     });
     return true;
@@ -760,7 +914,14 @@ function handleApplyRecommendationClick() {
     if (isRecommendationSnapshotStale(recommendationState, context)) {
         const errorCode = "STALE_SNAPSHOT";
         setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
-        recordRecommendationTelemetry("recommendation_apply_failed", { errorCode });
+        recordRecommendationTelemetry("recommendation_apply_failed", { errorCode, lowResMode: true });
+        triggerStarterRecommendationForCurrentContext();
+        return;
+    }
+    if (isLowResolutionAssessmentStale(recommendationState.lowResAssessment, context)) {
+        const errorCode = "STALE_SNAPSHOT";
+        setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
+        recordRecommendationTelemetry("recommendation_apply_failed", { errorCode, lowResAssessment: "stale", lowResMode: true });
         triggerStarterRecommendationForCurrentContext();
         return;
     }
@@ -768,10 +929,12 @@ function handleApplyRecommendationClick() {
     if (!selectedOption) {
         const errorCode = "NO_SUITABLE_RECOMMENDATION";
         setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
-        recordRecommendationTelemetry("recommendation_apply_failed", { errorCode });
+        recordRecommendationTelemetry("recommendation_apply_failed", { errorCode, lowResMode: true });
         return;
     }
-    const applyPayload = buildRecommendationApplyPayload(selectedOption);
+    const applyPayload = isLowResolutionTargetDimensions(context.targetDimensions)
+        ? buildLowResOptionApplyPayload(selectedOption, recommendationState.lowResAssessment)
+        : buildRecommendationApplyPayload(selectedOption);
     applyRecommendedPaletteByName(selectedOption.paletteId);
     applyRecommendedPictureSettings(selectedOption.pictureSettings);
     runStep2();
@@ -790,6 +953,7 @@ function handleApplyRecommendationClick() {
     setRecommendationStatus("Recommendation applied. You can continue with manual adjustments.");
     recordRecommendationTelemetry("recommendation_apply_success", {
         appliedOptionId: applyPayload.appliedOptionId,
+        lowResMode: isLowResolutionTargetDimensions(context.targetDimensions),
     });
 }
 
@@ -820,10 +984,12 @@ function handleSaveRecommendationProfileClick() {
         setRecommendationStatus(`Saved recommendation profile "${savedProfile.name}".`);
         recordRecommendationTelemetry("recommendation_profile_save_success", {
             profileId: savedProfile.profileId,
+            lowResMode: true,
         });
     } catch (_e) {
-        setRecommendationStatus("Failed to save recommendation profile.");
-        recordRecommendationTelemetry("recommendation_profile_save_failed");
+        const errorCode = "PROFILE_SAVE_FAILED";
+        setRecommendationStatus(getRecommendationErrorMessage(errorCode), errorCode);
+        recordRecommendationTelemetry("recommendation_profile_save_failed", { errorCode, lowResMode: true });
     }
 }
 
@@ -894,7 +1060,9 @@ async function runStep1WhenCropperReady() {
     triggerStarterRecommendationForCurrentContext();
 }
 
-step1CanvasUpscaled.addEventListener("cropend", runStep1);
+step1CanvasUpscaled.addEventListener("cropend", () => {
+    runStep1();
+});
 
 window.addEventListener("resize", () => {
     [step4Canvas].forEach((canvas) => {
@@ -3829,6 +3997,7 @@ window.AppBridge = {
     getRecommendationProfileState: () => recommendationState.activeProfile,
 };
 
+initializeLowResolutionScaffold();
 initializeRecommendationPanelScaffold();
 bindRecommendationPanelEvents();
 void refreshSavedRecommendationProfiles();

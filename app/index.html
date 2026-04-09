@@ -1902,7 +1902,12 @@
     <div id="recommendation-panel-card" class="card card-body recommendation-panel" hidden>
       <div class="d-flex align-items-start justify-content-between flex-wrap">
         <div>
-          <h5 class="mb-1">Recommended Setup</h5>
+          <h5 class="mb-1">
+            Recommended Setup
+            <span class="badge badge-pill badge-light ml-1 lowres-mode-badge" id="lowres-mode-badge" hidden>
+              Low-Res Quality Mode
+            </span>
+          </h5>
           <small class="text-muted" id="recommendation-status-text" aria-live="polite">
             Upload and crop an image to unlock recommendation options.
           </small>
@@ -1917,6 +1922,9 @@
       <div class="recommendation-summary mt-2" id="recommendation-summary" hidden>
         <small class="text-muted" id="recommendation-summary-text"></small>
       </div>
+      <small class="text-muted mt-2 lowres-quality-hint" id="lowres-quality-hint">
+        Low-resolution quality guidance appears automatically at small target sizes.
+      </small>
       <small class="text-muted mt-2" id="recommendation-empty-state">Recommendation options appear here after valid image context is ready.</small>
       <small class="text-warning mt-2" id="recommendation-fallback-message" hidden aria-live="polite">
         No suitable recommendation could be generated. Adjust crop, dimensions, or constraints and try again.

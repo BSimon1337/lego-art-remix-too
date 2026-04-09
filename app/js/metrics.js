@@ -1,5 +1,17 @@
 const TS_ROUND_GRANULARITY = 1000;
 const DAY_ROUND_MS = 8.64e7;
+const LOW_RES_RECOMMENDATION_EVENTS = Object.freeze({
+    GENERATE_START: "lowres_generate_start",
+    GENERATE_SUCCESS: "lowres_generate_success",
+    GENERATE_FAILED: "lowres_generate_failed",
+    OPTION_PREVIEW: "lowres_option_preview",
+    APPLY_SUCCESS: "lowres_apply_success",
+    APPLY_FAILED: "lowres_apply_failed",
+    PROFILE_SAVE_SUCCESS: "lowres_profile_save_success",
+    PROFILE_SAVE_FAILED: "lowres_profile_save_failed",
+    PROFILE_APPLY_SUCCESS: "lowres_profile_apply_success",
+    PROFILE_APPLY_FAILED: "lowres_profile_apply_failed",
+});
 
 function getMetricsDatabase() {
     return window.firebase?.database?.() || null;
@@ -25,8 +37,17 @@ function recordRecommendationMetric(eventName, metadata = {}) {
     }
 }
 
+function recordLowResRecommendationMetric(eventName, metadata = {}) {
+    recordRecommendationMetric(eventName, {
+        ...metadata,
+        mode: "lowres",
+    });
+}
+
 window.LARMetrics = {
     recordRecommendationMetric,
+    recordLowResRecommendationMetric,
+    LOW_RES_RECOMMENDATION_EVENTS,
 };
 
 try {
