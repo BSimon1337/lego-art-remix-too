@@ -697,6 +697,7 @@
     }
 
     const RECOMMENDATION_PROFILE_STORAGE_KEY = 'lar_recommendation_profiles';
+    const LOW_RES_RECOMMENDATION_PROFILE_STORAGE_KEY = 'lar_lowres_recommendation_profiles';
     const RECOMMENDATION_PROFILE_MAX_ITEMS = 50;
     const RECOMMENDATION_PROFILE_DEFAULT_OWNER = 'current-session';
 
@@ -750,6 +751,20 @@
         return JSON.stringify(normalized);
     }
 
+    function serializeLowResRecommendationProfile(profile) {
+        const normalizedProfile = {
+            ...profile,
+            sourceGoal: profile?.sourceGoal || 'cleaner_shapes',
+            lowResMode: true,
+        };
+        const serialized = serializeRecommendationProfile(normalizedProfile);
+        const parsed = JSON.parse(serialized);
+        return JSON.stringify({
+            ...parsed,
+            lowResMode: true,
+        });
+    }
+
     function deserializeRecommendationProfile(serializedProfile) {
         const parsed = typeof serializedProfile === 'string' ? JSON.parse(serializedProfile) : serializedProfile;
         if (!parsed || !parsed.profileId || !parsed.paletteId || !parsed.pictureSettings) {
@@ -764,6 +779,16 @@
             createdAt: parsed.createdAt || new Date().toISOString(),
             updatedAt: parsed.updatedAt || new Date().toISOString(),
             ownerRef: parsed.ownerRef || null,
+        };
+    }
+
+    function deserializeLowResRecommendationProfile(serializedProfile) {
+        const parsed = typeof serializedProfile === 'string' ? JSON.parse(serializedProfile) : serializedProfile;
+        const normalized = deserializeRecommendationProfile(parsed);
+        return {
+            ...normalized,
+            sourceGoal: normalized.sourceGoal || 'cleaner_shapes',
+            lowResMode: true,
         };
     }
 
@@ -908,12 +933,15 @@
     window.LARRecommendationStorage = {
         serializeRecommendationProfile,
         deserializeRecommendationProfile,
+        serializeLowResRecommendationProfile,
+        deserializeLowResRecommendationProfile,
         saveRecommendationProfile,
         updateRecommendationProfile,
         deleteRecommendationProfile,
         listRecommendationProfiles,
         renderRecommendationProfileList,
         getStoredRecommendationProfiles,
+        LOW_RES_RECOMMENDATION_PROFILE_STORAGE_KEY,
     };
 
     // initialize: wire buttons
